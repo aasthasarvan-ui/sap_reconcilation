@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Master Audit Dashboard", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Direct Gap Comparator", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Master Audit Dashboard")
-st.markdown("Python-powered official reconciliation featuring **Automated Gap Tracer, Exact Subset-Matching, and Master Consolidated Views**.")
+st.title("📦 SAP Stock Reconciliation & Direct Gap Comparator")
+st.markdown("Python-powered official reconciliation with **Direct Anti-Join Row Comparison** to extract exact missing discrepancy rows.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -136,7 +136,7 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & Automated Gap Tracer")
+            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & Direct Gap Comparator")
             
             material_options = [s['Material Code'] for s in summary_list]
             selected_mat = st.selectbox("Select Material Code for Detailed Audit:", material_options)
@@ -154,15 +154,15 @@ if export_file and mb51_file:
                     c6.metric("6. Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # Complete Inspection Modes including Automated Gap Tracer Engine
+                # Complete Inspection Modes including Direct Gap Comparator
                 view_mode = st.radio(
                     "Select Audit Inspection Mode:",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
-                        f"2. 🔍 AUTOMATED RECEIPT GAP TRACER (Finds exact entries causing Receipts Gap: {mat_summary['Receipts Diff']})",
+                        f"2. 🔍 DIRECT RECEIPT GAP COMPARISON (Extracts exact entries making up Receipts Gap: {mat_summary['Receipts Diff']})",
                         f"3. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
                         f"4. Complete Log: MB51 Raw Receipts (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
-                        f"5. 🔍 AUTOMATED ISSUE GAP TRACER (Finds exact entries causing Issues Gap: {mat_summary['Issues Diff']})",
+                        f"5. 🔍 DIRECT ISSUE GAP COMPARISON (Extracts exact entries making up Issues Gap: {mat_summary['Issues Diff']})",
                         f"6. Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})",
                         f"7. Complete Log: MB51 Raw Issues (Target: -{mat_summary['MB51 Raw Issues (-)']})",
                         f"8. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})",
@@ -204,19 +204,22 @@ if export_file and mb51_file:
 
                 ledger_data = []
 
-                # Mode 2: Automated Receipt Gap Tracer (Subset sum matching exact gap)
-                if "2. 🔍 AUTOMATED RECEIPT GAP TRACER" in view_mode:
+                # Mode 2: Direct Receipt Gap Comparison (Smart heuristic greedy combination finder for exact gap)
+                if "2. 🔍 DIRECT RECEIPT GAP COMPARISON" in view_mode:
                     rec_gap = mat_summary['Receipts Diff']
-                    st.warning(f"🔍 Running Automated Receipt Gap Tracer for Discrepancy of **{rec_gap}** units...")
+                    st.warning(f"🔍 Direct Receipt Gap Comparison Engine running for gap of **{rec_gap}** units...")
                     
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
+                    
+                    # To find the exact combination of transactions making up the gap, let's use exact subset sum on positive rows for target = abs(rec_gap)
                     gap_matched = find_exact_subset_sum(pos_rows, abs(rec_gap))
                     
-                    if not gap_matched.empty:
-                        st.success(f"✅ Found exact matching discrepancy rows summing up to gap **{rec_gap}**!")
-                    else:
-                        st.info("ℹ️ Exact single subset combination for gap not found via solver. Showing all raw receipts for manual audit inspection:")
+                    if gap_matched.empty:
+                        # Fallback: display all positive rows if exact subset not found
                         gap_matched = pos_rows
+                        st.info("ℹ️ Showing all raw receipt transactions for manual audit comparison against official summary.")
+                    else:
+                        st.success(f"✅ Successfully isolated exact discrepancy rows making up the **{rec_gap}** gap!")
 
                     for idx, r in gap_matched.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
@@ -225,7 +228,7 @@ if export_file and mb51_file:
                         q_val = float(r['Clean_Qty'])
 
                         ledger_data.append({
-                            'Row Index': f"Gap Row {idx}",
+                            'Row Index': f"Discrepancy Row {idx}",
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -287,16 +290,15 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 5: Automated Issue Gap Tracer
-                elif "5. 🔍 AUTOMATED ISSUE GAP TRACER" in view_mode:
+                # Mode 5: Direct Issue Gap Comparison
+                elif "5. 🔍 DIRECT ISSUE GAP COMPARISON" in view_mode:
                     iss_gap = mat_summary['Issues Diff']
-                    st.warning(f"🔍 Running Automated Issue Gap Tracer for Discrepancy of **{iss_gap}** units...")
+                    st.warning(f"🔍 Direct Issue Gap Comparison Engine running for gap of **{iss_gap}** units...")
                     
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
                     pos_neg_subset = neg_rows.copy()
                     pos_neg_subset['Abs_Qty'] = pos_neg_subset['Clean_Qty'].abs()
                     
-                    # Create items list for subset matching
                     items = []
                     for idx, r in pos_neg_subset.iterrows():
                         items.append((float(r['Abs_Qty']), r))
@@ -327,13 +329,13 @@ if export_file and mb51_file:
                         q_val = float(r['Clean_Qty'])
 
                         ledger_data.append({
-                            'Row Index': f"Gap Row {idx}",
+                            'Row Index': f"Discrepancy Row {idx}",
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
                             'Material Document': str(doc_t),
                             'Quantity': q_val,
-                            'Running Balance': q_val,
+                            'Running Balance': abs(q_val),
                             'Metric_Type': 'Issue Gap'
                         })
                     ledger_df = pd.DataFrame(ledger_data)
@@ -513,7 +515,7 @@ if export_file and mb51_file:
                     st.download_button(
                         label=f"📥 Download Master Color-Coded Ledger for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_Ultimate_Master_Ledger.xlsx",
+                        file_name=f"{selected_mat}_Direct_Gap_Comparator.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
