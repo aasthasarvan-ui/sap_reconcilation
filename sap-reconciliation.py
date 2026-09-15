@@ -10,9 +10,8 @@ st.set_page_config(
 
 st.title("📦 SAP Stock Reconciliation & Master Foolproof Auditor")
 st.markdown(
-    "Python-powered official reconciliation featuring **Movement-Wise Plus/Minus"
-    " Summary, Editable Root Causes, 9 Inspection Modes, and Color-Coded"
-    " Ledgers**."
+    "Python-powered official reconciliation featuring **Master Merged SAP,"
+    " Physical, & Movement-Wise Breakdown Reports**."
 )
 
 # 3 File Uploaders
@@ -288,10 +287,11 @@ if export_file and mb51_file:
             "Audit Remarks / Root Cause"
         ]
 
-      # NEW FEATURE: Movement-Wise Plus/Minus Summary Report
-      st.subheader("📂 Movement-Wise Plus/Minus Summary Report (MB51 Breakdown)")
+      # MASTER MERGED REPORT: Combining Summary + Movement Pivot Table
+      st.subheader(
+          "🔗 Master Merged Report (SAP Summary + Physical + Movement Breakdown)"
+      )
       if mov_mb51 and mov_mb51 in df_mb51.columns:
-        # Create pivot table for movement types
         movement_pivot = df_mb51.pivot_table(
             index="Clean_Material",
             columns=mov_mb51,
@@ -303,47 +303,37 @@ if export_file and mb51_file:
             columns={"Clean_Material": "Material Code"}, inplace=True
         )
 
-        st.dataframe(movement_pivot, use_container_width=True)
+        # Merge summary with movement pivot
+        master_merged_df = pd.merge(
+            edited_summary_df, movement_pivot, on="Material Code", how="left"
+        ).fillna(0)
+        st.dataframe(master_merged_df, use_container_width=True)
 
-        # Excel export for movement-wise summary
-        mov_output = io.BytesIO()
-        with pd.ExcelWriter(mov_output, engine="openpyxl") as writer:
-          movement_pivot.to_excel(
-              writer, sheet_name="Movement_Wise_Summary", index=False
+        # Excel export for Master Merged Report
+        master_output = io.BytesIO()
+        with pd.ExcelWriter(master_output, engine="openpyxl") as writer:
+          master_merged_df.to_excel(
+              writer, sheet_name="Master_Merged_Report", index=False
           )
         st.download_button(
-            label="📥 Download Movement-Wise Plus/Minus Report (.xlsx)",
-            data=mov_output.getvalue(),
-            file_name="Movement_Wise_Plus_Minus_Summary.xlsx",
+            label=(
+                "📥 Download Master Merged Excel Report (Summary + Movements)"
+                " (.xlsx)"
+            ),
+            data=master_output.getvalue(),
+            file_name="SAP_Physical_MB51_Master_Merged_Report.xlsx",
             mime=(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
         )
       else:
-        st.info(
-            "ℹ️ Movement Type column could not be automatically identified for"
-            " pivot breakdown."
-        )
+        st.dataframe(edited_summary_df, use_container_width=True)
 
       st.subheader("📈 Material Variance Distribution Chart")
       chart_data = edited_summary_df.set_index("Material Code")[
           "Variance (Phy vs SAP)"
       ]
       st.bar_chart(chart_data)
-
-      output = io.BytesIO()
-      with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        edited_summary_df.to_excel(
-            writer, sheet_name="Audit_Summary_With_Notes", index=False
-        )
-      st.download_button(
-          label="📥 Download Full Comparison Excel Report (With Audit Notes)",
-          data=output.getvalue(),
-          file_name="SAP_Python_Audit_Summary_With_Notes.xlsx",
-          mime=(
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          ),
-      )
 
       st.divider()
       st.subheader(
