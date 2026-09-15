@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Complete Master Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Ultimate Master Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Complete Master Auditor")
-st.markdown("Python-powered official reconciliation featuring **Exact Subset-Matching, Gap Analysis, and Full Color-Coded Ledgers**.")
+st.title("📦 SAP Stock Reconciliation & Ultimate Master Auditor")
+st.markdown("Python-powered official reconciliation featuring **Exact Subset-Matching, Row-by-Row Gap Breakdown, and Color-Coded Ledgers**.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -29,7 +29,7 @@ if export_file and mb51_file:
         df_export.columns = df_export.columns.str.strip()
         df_mb51.columns = df_mb51.columns.str.strip()
 
-        # Dynamic mapping
+        # Dynamic mapping for SAP Export
         mat_exp = next((c for c in df_export.columns if 'material' in c.lower()), None)
         op_col = next((c for c in df_export.columns if 'opening' in c.lower()), None)
         rec_exp = next((c for c in df_export.columns if 'receipt' in c.lower()), None)
@@ -37,6 +37,7 @@ if export_file and mb51_file:
         cls_col = next((c for c in df_export.columns if 'closing' in c.lower()), None)
         plant_col = next((c for c in df_export.columns if 'plant' in c.lower()), None)
 
+        # Dynamic mapping for MB51
         mat_mb51 = next((c for c in df_mb51.columns if 'material' in c.lower() and 'doc' not in c.lower()), None)
         qty_mb51 = next((c for c in df_mb51.columns if 'qty' in c.lower() or 'quantity' in c.lower()), None)
         date_mb51 = next((c for c in df_mb51.columns if 'date' in c.lower() or 'posting' in c.lower()), None)
@@ -153,19 +154,18 @@ if export_file and mb51_file:
                     c6.metric("6. Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # All Inspection Modes restored & enhanced
+                # Complete Inspection Modes (Exact Matching + Row-by-Row Gap Breakdown)
                 view_mode = st.radio(
                     "Select Audit Inspection Mode:",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
-                        f"2. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
-                        f"3. Complete Log: MB51 Raw Receipts (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
-                        f"4. 🔍 Receipts Difference Gap Analysis (Gap: {mat_summary['Receipts Diff']})",
+                        f"2. 🔍 SIDE-BY-SIDE ROW-BY-ROW GAP BREAKDOWN (Receipts Gap: {mat_summary['Receipts Diff']}, Issues Gap: {mat_summary['Issues Diff']})",
+                        f"3. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
+                        f"4. Complete Log: MB51 Raw Receipts (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
                         f"5. Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})",
                         f"6. Complete Log: MB51 Raw Issues (Target: -{mat_summary['MB51 Raw Issues (-)']})",
-                        f"7. 🔍 Issues Difference Gap Analysis (Gap: {mat_summary['Issues Diff']})",
-                        f"8. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})",
-                        f"9. Physical Stock & Variance Analysis (Physical Qty: {mat_summary['Physical Stock']}, Variance: {mat_summary['Variance (Phy vs SAP)']})"
+                        f"7. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})",
+                        f"8. Physical Stock & Variance Analysis (Physical Qty: {mat_summary['Physical Stock']}, Variance: {mat_summary['Variance (Phy vs SAP)']})"
                     ]
                 )
 
@@ -203,8 +203,45 @@ if export_file and mb51_file:
 
                 ledger_data = []
 
-                # Mode 2: Official Receipts Exact Match Filter
-                if "2. Strict Exact Match: Official Receipts Filter" in view_mode:
+                # Mode 2: Side-by-Side Row-by-Row Gap Breakdown (Row 0 to 33 inspection)
+                if "2. 🔍 SIDE-BY-SIDE ROW-BY-ROW GAP BREAKDOWN" in view_mode:
+                    st.warning(f"⚠️ **Complete Row-by-Row Indexing (Row 0 to {len(mat_rows)-1}) for {selected_mat}**")
+                    st.markdown(f"Receipts Gap: **{mat_summary['Receipts Diff']}** | Issues Gap: **{mat_summary['Issues Diff']}**")
+
+                    running_tot = mat_opening
+                    ledger_data.append({
+                        'Row Index': 'Base',
+                        'Material Code': selected_mat,
+                        'Posting Date': 'Opening Balance',
+                        'Movement Type': '-',
+                        'Material Document': '-',
+                        'Quantity': mat_opening,
+                        'Running Balance': running_tot,
+                        'Metric_Type': 'Opening'
+                    })
+
+                    for idx, r in mat_rows.reset_index().iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += q_val
+                        m_type = 'Receipt' if q_val > 0 else 'Issue'
+                        ledger_data.append({
+                            'Row Index': f"Row {idx}",
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot,
+                            'Metric_Type': m_type
+                        })
+                    ledger_df = pd.DataFrame(ledger_data)
+
+                # Mode 3: Official Receipts Exact Match Filter
+                elif "3. Strict Exact Match: Official Receipts Filter" in view_mode:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
@@ -220,6 +257,7 @@ if export_file and mb51_file:
 
                         running_tot += q_val
                         ledger_data.append({
+                            'Row Index': 'Match',
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -230,11 +268,11 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 3: MB51 Raw Receipts
-                elif "3. Complete Log: MB51 Raw Receipts" in view_mode:
+                # Mode 4: MB51 Raw Receipts Complete Log
+                elif "4. Complete Log: MB51 Raw Receipts" in view_mode:
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     running_tot = 0.0
-                    for _, r in pos_rows.iterrows():
+                    for idx, r in pos_rows.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
@@ -242,28 +280,7 @@ if export_file and mb51_file:
 
                         running_tot += q_val
                         ledger_data.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': str(p_date),
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': running_tot,
-                            'Metric_Type': 'Raw Receipt'
-                        })
-                    ledger_df = pd.DataFrame(ledger_data)
-
-                # Mode 4: Receipts Gap Analysis
-                elif "4. 🔍 Receipts Difference Gap Analysis" in view_mode:
-                    pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
-                    running_tot = 0.0
-                    for _, r in pos_rows.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
-
-                        running_tot += q_val
-                        ledger_data.append({
+                            'Row Index': f"Row {idx}",
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -311,6 +328,7 @@ if export_file and mb51_file:
 
                         running_tot += q_val
                         ledger_data.append({
+                            'Row Index': 'Match',
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -321,11 +339,11 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 6: MB51 Raw Issues
+                # Mode 6: MB51 Raw Issues Complete Log
                 elif "6. Complete Log: MB51 Raw Issues" in view_mode:
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
                     running_tot = 0.0
-                    for _, r in neg_rows.iterrows():
+                    for idx, r in neg_rows.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
@@ -333,6 +351,7 @@ if export_file and mb51_file:
 
                         running_tot += q_val
                         ledger_data.append({
+                            'Row Index': f"Row {idx}",
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -343,36 +362,15 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 7: Issues Gap Analysis
-                elif "7. 🔍 Issues Difference Gap Analysis" in view_mode:
-                    neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
-                    running_tot = 0.0
-                    for _, r in neg_rows.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = abs(float(r['Clean_Qty']))
-
-                        running_tot += q_val
-                        ledger_data.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': str(p_date),
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': str(doc_t),
-                            'Quantity': -q_val,
-                            'Running Balance': running_tot,
-                            'Metric_Type': 'Raw Issue'
-                        })
-                    ledger_df = pd.DataFrame(ledger_data)
-
-                # Mode 8: SAP Official Closing Verification
-                elif "8. SAP Official Closing Verification" in view_mode:
+                # Mode 7: SAP Official Closing Verification
+                elif "7. SAP Official Closing Verification" in view_mode:
                     target_cls = mat_summary['SAP Official Closing']
                     off_rec = mat_summary['Official Receipts (+)']
                     off_iss = mat_summary['Official Issues (-)']
                     calc_official_closing = mat_opening + off_rec - off_iss
                     
                     ledger_data.append({
+                        'Row Index': 'Base',
                         'Material Code': selected_mat,
                         'Posting Date': 'Opening Balance',
                         'Movement Type': '-',
@@ -382,6 +380,7 @@ if export_file and mb51_file:
                         'Metric_Type': 'Opening/Closing'
                     })
                     ledger_data.append({
+                        'Row Index': 'Summary',
                         'Material Code': selected_mat,
                         'Posting Date': 'Official Net Flow (Opening + Off. Rec - Off. Iss)',
                         'Movement Type': 'SUMMARY',
@@ -392,10 +391,11 @@ if export_file and mb51_file:
                     })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 9: Physical Stock & Variance Analysis
-                elif "9. Physical Stock & Variance Analysis" in view_mode:
+                # Mode 8: Physical Stock & Variance Analysis
+                elif "8. Physical Stock & Variance Analysis" in view_mode:
                     phy_val = mat_summary['Physical Stock']
                     ledger_data.append({
+                        'Row Index': 'Physical',
                         'Material Code': selected_mat,
                         'Posting Date': 'Physical Stock Audit Summary',
                         'Movement Type': 'PHYSICAL',
@@ -410,6 +410,7 @@ if export_file and mb51_file:
                 else:
                     running_tot = mat_opening
                     ledger_data.append({
+                        'Row Index': 'Base',
                         'Material Code': selected_mat,
                         'Posting Date': 'Opening Balance',
                         'Movement Type': '-',
@@ -419,7 +420,7 @@ if export_file and mb51_file:
                         'Metric_Type': 'Opening/Closing'
                     })
 
-                    for _, r in mat_rows.iterrows():
+                    for idx, r in mat_rows.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
@@ -428,6 +429,7 @@ if export_file and mb51_file:
                         running_tot += q_val
                         m_type = 'Receipt' if q_val > 0 else 'Issue'
                         ledger_data.append({
+                            'Row Index': f"Row {idx}",
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
@@ -460,11 +462,11 @@ if export_file and mb51_file:
                     ledger_output = io.BytesIO()
                     with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
                         display_df = ledger_df.drop(columns=['Metric_Type']) if 'Metric_Type' in ledger_df.columns else ledger_df
-                        display_df.to_excel(writer, sheet_name='Audit_Ledger', index=False)
+                        display_df.to_excel(writer, sheet_name='Master_Audit_Ledger', index=False)
                     st.download_button(
-                        label=f"📥 Download Color-Coded Ledger for {selected_mat} (.xlsx)",
+                        label=f"📥 Download Master Color-Coded Ledger for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_Master_Ledger.xlsx",
+                        file_name=f"{selected_mat}_Ultimate_Master_Ledger.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
