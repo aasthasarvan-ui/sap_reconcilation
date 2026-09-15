@@ -3,12 +3,12 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Running Balance Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Official Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Accurate Python Auditor")
-st.markdown("Upload your files below. Python Pandas ensures **100% accurate, confusion-free** summary calculations and true chronological running balances.")
+st.title("📦 SAP Stock Reconciliation & Official Ledger Auditor")
+st.markdown("Python-powered official reconciliation with 100% accuracy and detailed metric inspection.")
 
-# 3 File Uploaders matching your requirement
+# 3 File Uploaders
 col1, col2, col3 = st.columns(3)
 with col1:
     export_file = st.file_uploader("1. SAP Export File (.xlsx)", type=["xlsx", "xls"])
@@ -19,7 +19,6 @@ with col3:
 
 if export_file and mb51_file:
     try:
-        # Load files
         df_export = pd.read_excel(export_file)
         df_mb51 = pd.read_excel(mb51_file)
         
@@ -27,11 +26,10 @@ if export_file and mb51_file:
         if phy_file:
             df_phy = pd.read_excel(phy_file)
 
-        # Standardize columns
         df_export.columns = df_export.columns.str.strip()
         df_mb51.columns = df_mb51.columns.str.strip()
 
-        # Dynamic column mapping for SAP Export
+        # Dynamic mapping
         mat_exp = next((c for c in df_export.columns if 'material' in c.lower()), None)
         op_col = next((c for c in df_export.columns if 'opening' in c.lower()), None)
         rec_exp = next((c for c in df_export.columns if 'receipt' in c.lower()), None)
@@ -39,7 +37,6 @@ if export_file and mb51_file:
         cls_col = next((c for c in df_export.columns if 'closing' in c.lower()), None)
         plant_col = next((c for c in df_export.columns if 'plant' in c.lower()), None)
 
-        # Dynamic column mapping for MB51
         mat_mb51 = next((c for c in df_mb51.columns if 'material' in c.lower() and 'doc' not in c.lower()), None)
         qty_mb51 = next((c for c in df_mb51.columns if 'qty' in c.lower() or 'quantity' in c.lower()), None)
         date_mb51 = next((c for c in df_mb51.columns if 'date' in c.lower() or 'posting' in c.lower()), None)
@@ -50,7 +47,6 @@ if export_file and mb51_file:
             df_export['Material'] = df_export[mat_exp].astype(str).str.strip()
             df_export = df_export[~df_export['Material'].str.lower().str.contains('grand total', na=False)]
 
-            # Optional Physical Stock Mapping
             phy_map = {}
             if df_phy is not None:
                 m_phy = next((c for c in df_phy.columns if 'material' in c.lower() or 'code' in c.lower()), None)
@@ -59,7 +55,6 @@ if export_file and mb51_file:
                     for _, r in df_phy.iterrows():
                         phy_map[str(r[m_phy]).strip()] = float(r[q_phy]) if pd.notnull(r[q_phy]) else 0.0
 
-            # Pure Pandas Aggregation for MB51 Receipts and Issues
             df_mb51['Clean_Material'] = df_mb51[mat_mb51].astype(str).str.strip()
             df_mb51['Clean_Qty'] = pd.to_numeric(df_mb51[qty_mb51], errors='coerce').fillna(0)
 
@@ -69,7 +64,6 @@ if export_file and mb51_file:
             iss_df = df_mb51[df_mb51['Clean_Qty'] < 0].groupby('Clean_Material')['Clean_Qty'].sum().abs().reset_index()
             iss_df.rename(columns={'Clean_Qty': 'MB51_Raw_Issues', 'Clean_Material': 'Material'}, inplace=True)
 
-            # Build Summary Table
             summary_list = []
             for _, row in df_export.iterrows():
                 mat = row['Material']
@@ -110,11 +104,11 @@ if export_file and mb51_file:
 
             summary_df = pd.DataFrame(summary_list)
             
-            st.success("Files successfully processed with Python Pandas!")
+            st.success("Files successfully processed!")
             st.subheader("📊 Comparative Audit Summary")
             st.dataframe(summary_df, use_container_width=True)
 
-            # Download Full Summary Report Button
+            # Export Button
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 summary_df.to_excel(writer, sheet_name='Audit_Summary', index=False)
@@ -126,13 +120,25 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Chronological Running Balance Ledger Viewer")
+            st.subheader("🔍 Official vs Raw Chronological Ledger & Inspector")
             
             material_options = [s['Material Code'] for s in summary_list]
-            selected_mat = st.selectbox("Select Material Code to view exact Running Balance Ledger:", material_options)
+            selected_mat = st.selectbox("Select Material Code for Official Metric Audit:", material_options)
 
             if selected_mat:
-                mat_opening = next((s['Opening Stock'] for s in summary_list if s['Material Code'] == selected_mat), 0.0)
+                # Find matching summary metrics for this material
+                mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
+                
+                if mat_summary:
+                    # Display Official Metrics in Clean Streamlit Metrics Cards
+                    m1, m2, m3, m4, m5 = st.columns(5)
+                    m1.metric("Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
+                    m2.metric("MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
+                    m3.metric("Official Issues", f"-{mat_summary['Official Issues (-)']:,}", delta=f"Diff: {mat_summary['Issues Diff']}", delta_color="inverse")
+                    m4.metric("MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
+                    m5.metric("SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
+
+                mat_opening = mat_summary['Opening Stock'] if mat_summary else 0.0
                 mat_rows = df_mb51[df_mb51['Clean_Material'] == selected_mat].copy()
                 
                 if date_mb51 and date_mb51 in mat_rows.columns:
@@ -141,7 +147,6 @@ if export_file and mb51_file:
                 ledger_data = []
                 running_tot = mat_opening
                 
-                # Opening Row
                 ledger_data.append({
                     'Material Code': selected_mat,
                     'Posting Date': 'Opening Balance',
@@ -151,7 +156,6 @@ if export_file and mb51_file:
                     'Running Balance': running_tot
                 })
 
-                # Cumulative Sum Execution (True Running Balance)
                 for _, r in mat_rows.iterrows():
                     p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                     mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
@@ -171,17 +175,17 @@ if export_file and mb51_file:
                 ledger_df = pd.DataFrame(ledger_data)
                 st.dataframe(ledger_df, use_container_width=True)
 
-                # Download Individual Ledger Excel Button
+                # Download Individual Ledger
                 ledger_output = io.BytesIO()
                 with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
-                    ledger_df.to_excel(writer, sheet_name='Running_Ledger', index=False)
+                    ledger_df.to_excel(writer, sheet_name='Official_Ledger', index=False)
                 st.download_button(
-                    label=f"📥 Download Running Ledger for {selected_mat} (.xlsx)",
+                    label=f"📥 Download Official Ledger & Metrics for {selected_mat} (.xlsx)",
                     data=ledger_output.getvalue(),
-                    file_name=f"{selected_mat}_Running_Ledger.xlsx",
+                    file_name=f"{selected_mat}_Official_Ledger.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         else:
-            st.error("Error: Could not automatically detect required columns (Material, Opening, Receipts, Quantity) in your files.")
+            st.error("Error: Could not automatically detect required columns.")
     except Exception as e:
-            st.error(f"An error occurred while processing the files: {e}")
+            st.error(f"An error occurred: {e}")
