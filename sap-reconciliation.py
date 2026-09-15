@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Official Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Official Ledger Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Official Receipts Auditor")
-st.markdown("Python-powered official reconciliation with dedicated **Official Receipts Chronological Ledger** and Movement-type breakdown.")
+st.title("📦 SAP Stock Reconciliation & Chronological Auditor")
+st.markdown("Python-powered accurate reconciliation with exact chronological running balance ledger matching your audit format.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -120,16 +120,16 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🌟 Official Receipts & MB51 Raw Ledger Inspector")
+            st.subheader("🔍 Chronological Running Balance Ledger Viewer")
             
             material_options = [s['Material Code'] for s in summary_list]
-            selected_mat = st.selectbox("Select Material Code for Detailed Ledger & Official Metrics:", material_options)
+            selected_mat = st.selectbox("Select Material Code to view exact Running Balance Ledger:", material_options)
 
             if selected_mat:
                 mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
                 
                 if mat_summary:
-                    # Metric Cards
+                    # Metric Cards for Official vs Raw Comparison
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
                     m2.metric("MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
@@ -137,104 +137,59 @@ if export_file and mb51_file:
                     m4.metric("MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
                     m5.metric("SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # Tabs for Official Receipts Ledger vs Full MB51 Raw Ledger
-                tab1, tab2 = st.tabs(["📥 Official Receipts Chronological Ledger (+ve Qty)", "📜 Full MB51 Raw Transactions Ledger"])
-
-                # Filter raw rows for selected material
+                mat_opening = mat_summary['Opening Stock'] if mat_summary else 0.0
                 mat_rows = df_mb51[df_mb51['Clean_Material'] == selected_mat].copy()
+                
                 if date_mb51 and date_mb51 in mat_rows.columns:
                     mat_rows = mat_rows.sort_values(by=date_mb51, ascending=True)
 
-                with tab1:
-                    st.markdown(f"### 📥 Official Receipts Chronological Ledger for **{selected_mat}**")
-                    st.markdown("Showing only positive receipt transactions (`Clean_Qty > 0`) that contribute towards material receipts, with running cumulative totals.")
-                    
-                    receipt_rows = mat_rows[mat_rows['Clean_Qty'] > 0].copy()
-                    
-                    # Movement Type Breakdown Summary for Receipts
-                    if mov_mb51 and mov_mb51 in receipt_rows.columns:
-                        mov_summary = receipt_rows.groupby(mov_mb51)['Clean_Qty'].sum().reset_index()
-                        mov_summary.columns = ['Movement Type', 'Total Receipt Quantity']
-                        st.markdown("##### 📊 Movement Type Breakdown (Receipts)")
-                        st.dataframe(mov_summary, use_container_width=True)
+                ledger_data = []
+                running_tot = mat_opening
+                
+                # Opening Row matching exact table format
+                ledger_data.append({
+                    'Material Code': selected_mat,
+                    'Posting Date': 'Opening Balance',
+                    'Movement Type': '-',
+                    'Material Document': '-',
+                    'Quantity': mat_opening,
+                    'Running Balance': running_tot
+                })
 
-                    receipt_ledger = []
-                    rec_running = 0.0
-                    for _, r in receipt_rows.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                # Chronological Calculation matching exact table format
+                for _, r in mat_rows.iterrows():
+                    p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                    mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                    doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                    q_val = float(r['Clean_Qty'])
 
-                        rec_running += q_val
-                        receipt_ledger.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': p_date,
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': doc_t,
-                            'Receipt Quantity': q_val,
-                            'Running Receipt Total': rec_running
-                        })
-
-                    rec_ledger_df = pd.DataFrame(receipt_ledger)
-                    st.dataframe(rec_ledger_df, use_container_width=True)
-
-                    # Download Official Receipts Ledger
-                    rec_output = io.BytesIO()
-                    with pd.ExcelWriter(rec_output, engine='openpyxl') as writer:
-                        rec_ledger_df.to_excel(writer, sheet_name='Official_Receipts_Ledger', index=False)
-                    st.download_button(
-                        label=f"📥 Download Official Receipts Ledger for {selected_mat} (.xlsx)",
-                        data=rec_output.getvalue(),
-                        file_name=f"{selected_mat}_Official_Receipts_Ledger.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-                with tab2:
-                    st.markdown(f"### 📜 Full MB51 Raw Transactions Ledger for **{selected_mat}**")
-                    full_ledger = []
-                    mat_opening = mat_summary['Opening Stock'] if mat_summary else 0.0
-                    full_running = mat_opening
-
-                    full_ledger.append({
+                    running_tot += q_val
+                    ledger_data.append({
                         'Material Code': selected_mat,
-                        'Posting Date': 'Opening Balance',
-                        'Movement Type': '-',
-                        'Material Document': '-',
-                        'Quantity': mat_opening,
-                        'Running Balance': full_running
+                        'Posting Date': str(p_date),
+                        'Movement Type': f"Mov {mov_t}",
+                        'Material Document': str(doc_t),
+                        'Quantity': q_val,
+                        'Running Balance': running_tot
                     })
 
-                    for _, r in mat_rows.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                ledger_df = pd.DataFrame(ledger_data)
+                
+                # Render exact table view
+                st.markdown(f"### Chronological Ledger for **{selected_mat}**")
+                st.dataframe(ledger_df, use_container_width=True)
 
-                        full_running += q_val
-                        full_ledger.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': p_date,
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': doc_t,
-                            'Quantity': q_val,
-                            'Running Balance': full_running
-                        })
-
-                    full_ledger_df = pd.DataFrame(full_ledger)
-                    st.dataframe(full_ledger_df, use_container_width=True)
-
-                    full_output = io.BytesIO()
-                    with pd.ExcelWriter(full_output, engine='openpyxl') as writer:
-                        full_ledger_df.to_excel(writer, sheet_name='Full_Raw_Ledger', index=False)
-                    st.download_button(
-                        label=f"📥 Download Full Raw Ledger for {selected_mat} (.xlsx)",
-                        data=full_output.getvalue(),
-                        file_name=f"{selected_mat}_Full_Raw_Ledger.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
+                # Download Individual Ledger Excel Button
+                ledger_output = io.BytesIO()
+                with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
+                    ledger_df.to_excel(writer, sheet_name='Running_Ledger', index=False)
+                st.download_button(
+                    label=f"📥 Download Running Ledger for {selected_mat} (.xlsx)",
+                    data=ledger_output.getvalue(),
+                    file_name=f"{selected_mat}_Running_Ledger.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
         else:
-            st.error("Error: Could not automatically detect required columns.")
+            st.error("Error: Could not automatically detect required columns (Material, Opening, Receipts, Quantity) in your files.")
     except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"An error occurred while processing the files: {e}")
