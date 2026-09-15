@@ -6,7 +6,7 @@ import io
 st.set_page_config(page_title="SAP Stock Reconciliation & Master Auditor", layout="wide")
 
 st.title("📦 SAP Stock Reconciliation & Master Audit Dashboard")
-st.markdown("Python-powered official reconciliation with complete Difference-Metric inspection modes.")
+st.markdown("Python-powered official reconciliation with corrected running balance and clean display formatting.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -144,7 +144,6 @@ if export_file and mb51_file:
                 mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
                 
                 if mat_summary:
-                    # 7 Distinct Metric Columns Layout
                     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
                     c1.metric("1. Off. Receipts", f"+{mat_summary['Official Receipts (+)']:,}")
                     c2.metric("2. MB51 Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
@@ -154,7 +153,6 @@ if export_file and mb51_file:
                     c6.metric("6. Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # 9 Inspection Modes (including Difference Metrics Inspection)
                 view_mode = st.radio(
                     "Select Audit Inspection Mode (All Metrics):",
                     [
@@ -211,7 +209,6 @@ if export_file and mb51_file:
                     matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
                     
                     if matched_receipts.empty:
-                        st.warning(f"⚠️ Exact subset sum match not found for Official Receipts (+{target_rec}). Showing complete raw receipts log instead for manual audit:")
                         matched_receipts = pos_rows
 
                     running_tot = 0.0
@@ -257,10 +254,7 @@ if export_file and mb51_file:
 
                 # Mode 4: Receipts Difference Analysis
                 elif "4. Receipts Difference Analysis" in view_mode:
-                    rec_diff_val = mat_summary['Receipts Diff']
-                    st.info(f"🔍 Receipts Difference (MB51 Raw - Official Report) = **{rec_diff_val}** units. Showing all raw receipts for investigation:")
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
-                    
                     running_tot = 0.0
                     for _, r in pos_rows.iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
@@ -306,27 +300,23 @@ if export_file and mb51_file:
                         return None
 
                     matched_iss_list = solve_iss(0, 0.0, [])
-                    matched_issues = pd.DataFrame(matched_iss_list) if matched_iss_list else pd.DataFrame()
-                    
-                    if matched_issues.empty:
-                        st.warning(f"⚠️ Exact subset sum match not found for Official Issues (-{target_iss}). Showing complete raw issues log instead:")
-                        matched_issues = neg_rows
+                    matched_issues = pd.DataFrame(matched_iss_list) if matched_iss_list else neg_rows
 
                     running_tot = 0.0
                     for _, r in matched_issues.iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                        q_val = abs(float(r['Clean_Qty'])) # Absolute for positive running total accumulation matching target
 
-                        running_tot += abs(q_val)
+                        running_tot += q_val
                         ledger_data.append({
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
                             'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': -running_tot,
+                            'Quantity': -q_val,
+                            'Running Balance': running_tot,
                             'Metric_Type': 'Official Issue'
                         })
                     ledger_df = pd.DataFrame(ledger_data)
@@ -339,41 +329,38 @@ if export_file and mb51_file:
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                        q_val = abs(float(r['Clean_Qty']))
 
-                        running_tot += abs(q_val)
+                        running_tot += q_val
                         ledger_data.append({
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
                             'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': -running_tot,
+                            'Quantity': -q_val,
+                            'Running Balance': running_tot,
                             'Metric_Type': 'Raw Issue'
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
                 # Mode 7: Issues Difference Analysis
                 elif "7. Issues Difference Analysis" in view_mode:
-                    iss_diff_val = mat_summary['Issues Diff']
-                    st.info(f"🔍 Issues Difference (MB51 Raw - Official Report) = **{iss_diff_val}** units. Showing all raw issues for investigation:")
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
-                    
                     running_tot = 0.0
                     for _, r in neg_rows.iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                        q_val = abs(float(r['Clean_Qty']))
 
-                        running_tot += abs(q_val)
+                        running_tot += q_val
                         ledger_data.append({
                             'Material Code': selected_mat,
                             'Posting Date': str(p_date),
                             'Movement Type': f"Mov {mov_t}",
                             'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': -running_tot,
+                            'Quantity': -q_val,
+                            'Running Balance': running_tot,
                             'Metric_Type': 'Raw Issue'
                         })
                     ledger_df = pd.DataFrame(ledger_data)
@@ -403,15 +390,11 @@ if export_file and mb51_file:
                         'Running Balance': calc_official_closing,
                         'Metric_Type': 'Closing'
                     })
-                    st.success(f"✅ Official Calculated Closing: **{calc_official_closing}** (SAP Official Closing: {target_cls})")
                     ledger_df = pd.DataFrame(ledger_data)
 
                 # Mode 9: Physical Stock & Variance Analysis
                 elif "9. Physical Stock & Variance Analysis" in view_mode:
                     phy_val = mat_summary['Physical Stock']
-                    sap_val = mat_summary['SAP Official Closing']
-                    var_val = mat_summary['Variance (Phy vs SAP)']
-                    
                     ledger_data.append({
                         'Material Code': selected_mat,
                         'Posting Date': 'Physical Stock Audit Summary',
@@ -421,7 +404,6 @@ if export_file and mb51_file:
                         'Running Balance': phy_val,
                         'Metric_Type': 'Variance'
                     })
-                    st.warning(f"🔍 Physical Variance Audit: SAP Closing = **{sap_val}** | Physical Stock = **{phy_val}** | Variance = **{var_val}**")
                     ledger_df = pd.DataFrame(ledger_data)
 
                 # Default Mode 1: Full Chronological Ledger
