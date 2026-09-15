@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & True Exact Match Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & True Exact Match Auditor")
-st.markdown("Python-powered reconciliation with **Strict Mathematical Exact Subset Matching** (Zero Approximation).")
+st.title("📦 SAP Stock Reconciliation & Exact Match Auditor")
+st.markdown("Python-powered reconciliation with strict exact subset matching for both Receipts & Issues.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -129,7 +129,6 @@ if export_file and mb51_file:
                 mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
                 
                 if mat_summary:
-                    # Metric Cards
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
                     m2.metric("MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
@@ -154,12 +153,10 @@ if export_file and mb51_file:
                     mat_rows = mat_rows.sort_values(by=date_mb51, ascending=True)
 
                 def find_exact_subset_sum(rows_df, target_val):
-                    """True exact subset sum algorithm using recursive backtracking to guarantee 100% exact match"""
                     items = []
                     for idx, r in rows_df.iterrows():
-                        items.append((float(r['Clean_Qty']), idx, r))
+                        items.append((float(r['Clean_Qty']), r))
                     
-                    # Sort descending for optimization
                     items.sort(key=lambda x: abs(x[0]), reverse=True)
                     
                     def solve(index, current_sum, current_combination):
@@ -168,14 +165,12 @@ if export_file and mb51_file:
                         if index >= len(items) or current_sum > target_val + 1e-5:
                             return None
                         
-                        # Try including current item
-                        q, idx, row = items[index]
+                        q, row = items[index]
                         if current_sum + q <= target_val + 1e-5:
                             res = solve(index + 1, current_sum + q, current_combination + [row])
                             if res is not None:
                                 return res
                         
-                        # Try excluding current item
                         res = solve(index + 1, current_sum, current_combination)
                         if res is not None:
                             return res
@@ -185,7 +180,7 @@ if export_file and mb51_file:
                     matched = solve(0, 0.0, [])
                     if matched:
                         return pd.DataFrame(matched)
-                    return pd.DataFrame() # Return empty if no 100% exact match exists in raw log
+                    return pd.DataFrame()
 
                 ledger_data = []
 
@@ -214,17 +209,43 @@ if export_file and mb51_file:
                         st.success(f"✅ 100% Exact Match Found! Net Total: **{running_tot}** (Target: {target_rec})")
                         ledger_df = pd.DataFrame(ledger_data)
                     else:
-                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_rec}** ho. Iska matlab official report me kuch rounding ya net-off adjustment shamil hai jo raw log se alag hai.")
+                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_rec}** ho.")
                         ledger_df = pd.DataFrame(columns=['Material Code', 'Posting Date', 'Movement Type', 'Material Document', 'Quantity', 'Running Balance'])
 
                 elif "Official Issues Filter" in view_mode:
                     target_iss = mat_summary['Official Issues (-)']
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0].copy()
+                    
+                    # Store original negative rows and pass absolute values for matching
                     neg_rows['Abs_Qty'] = neg_rows['Clean_Qty'].abs()
                     
-                    # Convert to positive for subset sum search
-                    neg_rows_pos = neg_rows.rename(columns={'Abs_Qty': 'Clean_Qty'})
-                    matched_issues = find_exact_subset_sum(neg_rows_pos, target_iss)
+                    # Create items list directly to avoid series mapping issues
+                    items = []
+                    for idx, r in neg_rows.iterrows():
+                        items.append((float(r['Abs_Qty']), r))
+                    
+                    items.sort(key=lambda x: abs(x[0]), reverse=True)
+                    
+                    def solve_iss(index, current_sum, current_combination):
+                        if abs(current_sum - target_iss) < 1e-5:
+                            return current_combination
+                        if index >= len(items) or current_sum > target_iss + 1e-5:
+                            return None
+                        
+                        q, row = items[index]
+                        if current_sum + q <= target_iss + 1e-5:
+                            res = solve_iss(index + 1, current_sum + q, current_combination + [row])
+                            if res is not None:
+                                return res
+                        
+                        res = solve_iss(index + 1, current_sum, current_combination)
+                        if res is not None:
+                            return res
+                        
+                        return None
+
+                    matched_iss_list = solve_iss(0, 0.0, [])
+                    matched_issues = pd.DataFrame(matched_iss_list) if matched_iss_list else pd.DataFrame()
                     
                     if not matched_issues.empty:
                         running_tot = 0.0
@@ -232,9 +253,9 @@ if export_file and mb51_file:
                             p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                             mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                             doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                            q_val = -float(r['Clean_Qty']) # Make negative back
+                            q_val = float(r['Clean_Qty']) # Keep original negative value
 
-                            running_tot += q_val
+                            running_tot += abs(q_val)
                             ledger_data.append({
                                 'Material Code': selected_mat,
                                 'Posting Date': str(p_date),
@@ -243,7 +264,7 @@ if export_file and mb51_file:
                                 'Quantity': q_val,
                                 'Running Balance': running_tot
                             })
-                        st.success(f"✅ 100% Exact Match Found! Net Total: **{abs(running_tot)}** (Target: {target_iss})")
+                        st.success(f"✅ 100% Exact Match Found! Net Total Issues: **-{running_tot}** (Target: -{target_iss})")
                         ledger_df = pd.DataFrame(ledger_data)
                     else:
                         st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_iss}** ho.")
@@ -279,7 +300,6 @@ if export_file and mb51_file:
 
                 st.dataframe(ledger_df, use_container_width=True)
 
-                # Download Button
                 if not ledger_df.empty:
                     ledger_output = io.BytesIO()
                     with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
