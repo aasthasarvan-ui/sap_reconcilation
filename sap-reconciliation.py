@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Gap Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Complete Master Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Gap Auditor")
-st.markdown("Python-powered official reconciliation with dedicated **Receipts & Issues Difference Gap Row Analysis**.")
+st.title("📦 SAP Stock Reconciliation & Complete Master Auditor")
+st.markdown("Python-powered official reconciliation featuring **Exact Subset-Matching, Gap Analysis, and Full Color-Coded Ledgers**.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -135,7 +135,7 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & Gap Inspector")
+            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & Complete Inspector")
             
             material_options = [s['Material Code'] for s in summary_list]
             selected_mat = st.selectbox("Select Material Code for Detailed Audit:", material_options)
@@ -153,8 +153,9 @@ if export_file and mb51_file:
                     c6.metric("6. Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
+                # All Inspection Modes restored & enhanced
                 view_mode = st.radio(
-                    "Select Audit Inspection Mode (All Metrics & Gap Analysis):",
+                    "Select Audit Inspection Mode:",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
                         f"2. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
@@ -202,7 +203,7 @@ if export_file and mb51_file:
 
                 ledger_data = []
 
-                # Mode 2: Official Receipts Filter
+                # Mode 2: Official Receipts Exact Match Filter
                 if "2. Strict Exact Match: Official Receipts Filter" in view_mode:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
@@ -251,12 +252,8 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 4: Receipts Difference Gap Analysis
+                # Mode 4: Receipts Gap Analysis
                 elif "4. 🔍 Receipts Difference Gap Analysis" in view_mode:
-                    rec_diff_val = mat_summary['Receipts Diff']
-                    st.warning(f"🔍 Investigating Receipts Gap of **{rec_diff_val}** units (MB51 Raw Receipts minus Official Report Receipts).")
-                    st.markdown("Here are the raw receipt transactions that contribute to this discrepancy:")
-                    
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     running_tot = 0.0
                     for _, r in pos_rows.iterrows():
@@ -277,7 +274,7 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 5: Official Issues Filter
+                # Mode 5: Official Issues Exact Match Filter
                 elif "5. Strict Exact Match: Official Issues Filter" in view_mode:
                     target_iss = mat_summary['Official Issues (-)']
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0].copy()
@@ -346,12 +343,8 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 7: Issues Difference Gap Analysis
+                # Mode 7: Issues Gap Analysis
                 elif "7. 🔍 Issues Difference Gap Analysis" in view_mode:
-                    iss_diff_val = mat_summary['Issues Diff']
-                    st.warning(f"🔍 Investigating Issues Gap of **{iss_diff_val}** units (MB51 Raw Issues minus Official Report Issues).")
-                    st.markdown("Here are all raw issue transactions for investigation:")
-                    
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
                     running_tot = 0.0
                     for _, r in neg_rows.iterrows():
@@ -471,7 +464,7 @@ if export_file and mb51_file:
                     st.download_button(
                         label=f"📥 Download Color-Coded Ledger for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_Gap_Analysis_Ledger.xlsx",
+                        file_name=f"{selected_mat}_Master_Ledger.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
