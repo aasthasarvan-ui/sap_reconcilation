@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Exact Match Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & True Exact Match Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Exact Match Auditor")
-st.markdown("Python-powered accurate reconciliation with **Exact Subset Matching** for Official Receipts & Issues.")
+st.title("📦 SAP Stock Reconciliation & True Exact Match Auditor")
+st.markdown("Python-powered reconciliation with **Strict Mathematical Exact Subset Matching** (Zero Approximation).")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -137,13 +137,12 @@ if export_file and mb51_file:
                     m4.metric("MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
                     m5.metric("SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # View Mode Selector to filter exact rows matching Official Values
                 view_mode = st.radio(
                     "Select Ledger Inspection Mode:",
                     [
                         "Full Chronological Ledger (Opening + All Transactions)",
-                        f"Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
-                        f"Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})"
+                        f"Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
+                        f"Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})"
                     ],
                     horizontal=True
                 )
@@ -154,67 +153,101 @@ if export_file and mb51_file:
                 if date_mb51 and date_mb51 in mat_rows.columns:
                     mat_rows = mat_rows.sort_values(by=date_mb51, ascending=True)
 
-                def get_exact_subset_rows(rows, target):
-                    """Greedy exact subset matching for Python to match target value 100%"""
-                    sorted_rows = rows.sort_values(by='Clean_Qty', ascending=False)
-                    best_match = []
-                    current_sum = 0
-                    for _, r in sorted_rows.iterrows():
-                        q = float(r['Clean_Qty'])
-                        if abs(current_sum + q - target) <= abs(current_sum - target) or len(best_match) == 0:
-                            current_sum += q
-                            best_match.append(r)
-                            if abs(current_sum - target) < 0.01:
-                                break
-                    return pd.DataFrame(best_match)
+                def find_exact_subset_sum(rows_df, target_val):
+                    """True exact subset sum algorithm using recursive backtracking to guarantee 100% exact match"""
+                    items = []
+                    for idx, r in rows_df.iterrows():
+                        items.append((float(r['Clean_Qty']), idx, r))
+                    
+                    # Sort descending for optimization
+                    items.sort(key=lambda x: abs(x[0]), reverse=True)
+                    
+                    def solve(index, current_sum, current_combination):
+                        if abs(current_sum - target_val) < 1e-5:
+                            return current_combination
+                        if index >= len(items) or current_sum > target_val + 1e-5:
+                            return None
+                        
+                        # Try including current item
+                        q, idx, row = items[index]
+                        if current_sum + q <= target_val + 1e-5:
+                            res = solve(index + 1, current_sum + q, current_combination + [row])
+                            if res is not None:
+                                return res
+                        
+                        # Try excluding current item
+                        res = solve(index + 1, current_sum, current_combination)
+                        if res is not None:
+                            return res
+                        
+                        return None
+
+                    matched = solve(0, 0.0, [])
+                    if matched:
+                        return pd.DataFrame(matched)
+                    return pd.DataFrame() # Return empty if no 100% exact match exists in raw log
 
                 ledger_data = []
 
                 if "Official Receipts Filter" in view_mode:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
-                    matched_receipts = get_exact_subset_rows(pos_rows, target_rec)
+                    matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
                     
-                    running_tot = 0.0
-                    for _, r in matched_receipts.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                    if not matched_receipts.empty:
+                        running_tot = 0.0
+                        for _, r in matched_receipts.iterrows():
+                            p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                            mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                            doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                            q_val = float(r['Clean_Qty'])
 
-                        running_tot += q_val
-                        ledger_data.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': str(p_date),
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': running_tot
-                        })
-                    st.info(f"Showing exact matching rows for Official Receipts. Net Total: **{running_tot}** (Target: {target_rec})")
+                            running_tot += q_val
+                            ledger_data.append({
+                                'Material Code': selected_mat,
+                                'Posting Date': str(p_date),
+                                'Movement Type': f"Mov {mov_t}",
+                                'Material Document': str(doc_t),
+                                'Quantity': q_val,
+                                'Running Balance': running_tot
+                            })
+                        st.success(f"✅ 100% Exact Match Found! Net Total: **{running_tot}** (Target: {target_rec})")
+                        ledger_df = pd.DataFrame(ledger_data)
+                    else:
+                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_rec}** ho. Iska matlab official report me kuch rounding ya net-off adjustment shamil hai jo raw log se alag hai.")
+                        ledger_df = pd.DataFrame(columns=['Material Code', 'Posting Date', 'Movement Type', 'Material Document', 'Quantity', 'Running Balance'])
 
                 elif "Official Issues Filter" in view_mode:
                     target_iss = mat_summary['Official Issues (-)']
-                    neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
-                    matched_issues = get_exact_subset_rows(neg_rows, -target_iss)
+                    neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0].copy()
+                    neg_rows['Abs_Qty'] = neg_rows['Clean_Qty'].abs()
                     
-                    running_tot = 0.0
-                    for _, r in matched_issues.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
+                    # Convert to positive for subset sum search
+                    neg_rows_pos = neg_rows.rename(columns={'Abs_Qty': 'Clean_Qty'})
+                    matched_issues = find_exact_subset_sum(neg_rows_pos, target_iss)
+                    
+                    if not matched_issues.empty:
+                        running_tot = 0.0
+                        for _, r in matched_issues.iterrows():
+                            p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                            mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                            doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                            q_val = -float(r['Clean_Qty']) # Make negative back
 
-                        running_tot += q_val
-                        ledger_data.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': str(p_date),
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': running_tot
-                        })
-                    st.info(f"Showing exact matching rows for Official Issues. Net Total: **{running_tot}** (Target: -{target_iss})")
+                            running_tot += q_val
+                            ledger_data.append({
+                                'Material Code': selected_mat,
+                                'Posting Date': str(p_date),
+                                'Movement Type': f"Mov {mov_t}",
+                                'Material Document': str(doc_t),
+                                'Quantity': q_val,
+                                'Running Balance': running_tot
+                            })
+                        st.success(f"✅ 100% Exact Match Found! Net Total: **{abs(running_tot)}** (Target: {target_iss})")
+                        ledger_df = pd.DataFrame(ledger_data)
+                    else:
+                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_iss}** ho.")
+                        ledger_df = pd.DataFrame(columns=['Material Code', 'Posting Date', 'Movement Type', 'Material Document', 'Quantity', 'Running Balance'])
 
                 else:
                     running_tot = mat_opening
@@ -242,20 +275,21 @@ if export_file and mb51_file:
                             'Quantity': q_val,
                             'Running Balance': running_tot
                         })
+                    ledger_df = pd.DataFrame(ledger_data)
 
-                ledger_df = pd.DataFrame(ledger_data)
                 st.dataframe(ledger_df, use_container_width=True)
 
-                # Download Button for Filtered Ledger
-                ledger_output = io.BytesIO()
-                with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
-                    ledger_df.to_excel(writer, sheet_name='Filtered_Ledger', index=False)
-                st.download_button(
-                    label=f"📥 Download Filtered Ledger for {selected_mat} (.xlsx)",
-                    data=ledger_output.getvalue(),
-                    file_name=f"{selected_mat}_Filtered_Ledger.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                # Download Button
+                if not ledger_df.empty:
+                    ledger_output = io.BytesIO()
+                    with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
+                        ledger_df.to_excel(writer, sheet_name='Filtered_Ledger', index=False)
+                    st.download_button(
+                        label=f"📥 Download Ledger for {selected_mat} (.xlsx)",
+                        data=ledger_output.getvalue(),
+                        file_name=f"{selected_mat}_Exact_Match_Ledger.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
         else:
             st.error("Error: Could not automatically detect required columns in your files.")
     except Exception as e:
