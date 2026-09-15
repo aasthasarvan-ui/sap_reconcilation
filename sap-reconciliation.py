@@ -10,8 +10,8 @@ st.set_page_config(
 
 st.title("📦 SAP Stock Reconciliation & Master Foolproof Auditor")
 st.markdown(
-    "Python-powered official reconciliation featuring **Enterprise Alerts, Date"
-    " Filters, Editable Notes, 9 Inspection Modes, Running Balance, and Color-Coded"
+    "Python-powered official reconciliation featuring **Movement-Wise Plus/Minus"
+    " Summary, Editable Root Causes, 9 Inspection Modes, and Color-Coded"
     " Ledgers**."
 )
 
@@ -102,7 +102,7 @@ if export_file and mb51_file:
           ~df_export["Material"].str.lower().str.contains("grand total", na=False)
       ]
 
-      # Feature 2: MB51 Date Range Filtering in Sidebar
+      # MB51 Date Range Filtering in Sidebar
       if date_mb51 and date_mb51 in df_mb51.columns:
         df_mb51[date_mb51] = pd.to_datetime(
             df_mb51[date_mb51], errors="coerce"
@@ -261,14 +261,7 @@ if export_file and mb51_file:
 
       st.success("Files successfully processed with Python Pandas!")
 
-      # Feature 1: Zero-Stock & Negative Stock Alert Dashboard
-      neg_physical = summary_df[summary_df["Physical Stock"] < 0]
-      neg_sap = summary_df[summary_df["SAP Official Closing"] < 0]
-      if not neg_physical.empty or not neg_sap.empty:
-        st.warning(
-            "⚠️ **Alert:** Negative stock detected in Physical or SAP records!"
-        )
-
+      # Metric Cards
       total_items = len(summary_df)
       matched_items = len(summary_df[summary_df["Variance (Phy vs SAP)"] == 0])
       variance_items = total_items - matched_items
@@ -283,12 +276,6 @@ if export_file and mb51_file:
       st.subheader(
           "📊 Comparative Audit Summary & Editable Root Cause Tagging"
       )
-      st.info(
-          "💡 You can directly edit remarks in the 'Audit Remarks / Root Cause'"
-          " column below!"
-      )
-
-      # Feature 3: Interactive Editable Table for Audit Notes
       edited_summary_df = st.data_editor(
           summary_df,
           use_container_width=True,
@@ -301,23 +288,48 @@ if export_file and mb51_file:
             "Audit Remarks / Root Cause"
         ]
 
-      # Feature 4: Historical Trend / Variance Bar Chart
+      # NEW FEATURE: Movement-Wise Plus/Minus Summary Report
+      st.subheader("📂 Movement-Wise Plus/Minus Summary Report (MB51 Breakdown)")
+      if mov_mb51 and mov_mb51 in df_mb51.columns:
+        # Create pivot table for movement types
+        movement_pivot = df_mb51.pivot_table(
+            index="Clean_Material",
+            columns=mov_mb51,
+            values="Clean_Qty",
+            aggfunc="sum",
+            fill_value=0,
+        ).reset_index()
+        movement_pivot.rename(
+            columns={"Clean_Material": "Material Code"}, inplace=True
+        )
+
+        st.dataframe(movement_pivot, use_container_width=True)
+
+        # Excel export for movement-wise summary
+        mov_output = io.BytesIO()
+        with pd.ExcelWriter(mov_output, engine="openpyxl") as writer:
+          movement_pivot.to_excel(
+              writer, sheet_name="Movement_Wise_Summary", index=False
+          )
+        st.download_button(
+            label="📥 Download Movement-Wise Plus/Minus Report (.xlsx)",
+            data=mov_output.getvalue(),
+            file_name="Movement_Wise_Plus_Minus_Summary.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+      else:
+        st.info(
+            "ℹ️ Movement Type column could not be automatically identified for"
+            " pivot breakdown."
+        )
+
       st.subheader("📈 Material Variance Distribution Chart")
       chart_data = edited_summary_df.set_index("Material Code")[
           "Variance (Phy vs SAP)"
       ]
       st.bar_chart(chart_data)
-
-      # Feature 5: One-Click Management Summary Copier
-      st.subheader("📋 Management Brief Summary (WhatsApp / Email)")
-      summary_text = (
-          f"SAP Stock Audit Brief Report:\n- Total SKUs Audited:"
-          f" {total_items}\n- Perfectly Matched SKUs: {matched_items}\n-"
-          f" Discrepancy/Variance SKUs: {variance_items}\n- Net Total Variance"
-          f" Bags: {net_var_sum:+}\nPlease check the attached report for"
-          " detailed material-wise breakdowns."
-      )
-      st.text_area("Copy summary:", summary_text, height=90)
 
       output = io.BytesIO()
       with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -348,7 +360,6 @@ if export_file and mb51_file:
             edited_summary_df["Material Code"] == selected_mat
         ].iloc[0]
 
-        # 9 Metric Display Cards for Single Material
         c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(9)
         c1.metric("1. Opening", f"{mat_summary['Opening Stock']:,}")
         c2.metric("2. Off. Rec", f"+{mat_summary['Official Receipts (+)']:,}")
@@ -373,7 +384,6 @@ if export_file and mb51_file:
             f" {mat_summary['Audit Remarks / Root Cause']}"
         )
 
-        # All 9 Inspection Modes Restored
         view_mode = st.radio(
             "Select Audit Inspection Mode:",
             [
