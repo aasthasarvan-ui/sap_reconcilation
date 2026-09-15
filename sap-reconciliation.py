@@ -6,7 +6,7 @@ import io
 st.set_page_config(page_title="SAP Stock Reconciliation & Master Auditor", layout="wide")
 
 st.title("📦 SAP Stock Reconciliation & Master Audit Dashboard")
-st.markdown("Python-powered official reconciliation with **Master Consolidated View** and **Color-Coded Row Highlighting**.")
+st.markdown("Python-powered official reconciliation with complete Difference and Physical Variance metrics.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -110,8 +110,7 @@ if export_file and mb51_file:
 
             # Master Multi-Metric Consolidated View Option
             with st.expander("🌐 View Master Multi-Metric Consolidated Table (All Materials Combined)", expanded=False):
-                st.markdown("This master view brings together Official Receipts, MB51 Raw Receipts, Official Issues, MB51 Raw Issues, and Closing Stock side-by-side for all materials.")
-                master_view_df = summary_df[['Plant', 'Material Code', 'Opening Stock', 'Official Receipts (+)', 'MB51 Raw Receipts (+)', 'Official Issues (-)', 'MB51 Raw Issues (-)', 'SAP Official Closing', 'MB51 Calc Closing', 'Status']].copy()
+                master_view_df = summary_df[['Plant', 'Material Code', 'Opening Stock', 'Official Receipts (+)', 'MB51 Raw Receipts (+)', 'Receipts Diff', 'Official Issues (-)', 'MB51 Raw Issues (-)', 'Issues Diff', 'SAP Official Closing', 'Physical Stock', 'Variance (Phy vs SAP)', 'Status']].copy()
                 st.dataframe(master_view_df, use_container_width=True)
 
                 master_output = io.BytesIO()
@@ -145,15 +144,20 @@ if export_file and mb51_file:
                 mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
                 
                 if mat_summary:
-                    m1, m2, m3, m4, m5 = st.columns(5)
-                    m1.metric("1. Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
-                    m2.metric("2. MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
-                    m3.metric("3. Official Issues", f"-{mat_summary['Official Issues (-)']:,}", delta=f"Diff: {mat_summary['Issues Diff']}", delta_color="inverse")
-                    m4.metric("4. MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
-                    m5.metric("5. SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
+                    # 7 Metric Columns Layout for complete visibility without cutting
+                    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
+                    m1.metric("1. Off. Receipts", f"+{mat_summary['Official Receipts (+)']:,}")
+                    m2.metric("2. MB51 Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
+                    m3.metric("Rec. Diff", f"{mat_summary['Receipts Diff']:,}", delta_color="off")
+                    
+                    m4.metric("3. Off. Issues", f"-{mat_summary['Official Issues (-)']:,}")
+                    m5.metric("4. MB51 Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
+                    m6.metric("Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
+                    
+                    m7.metric("5. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
                 view_mode = st.radio(
-                    "Select Audit Inspection Mode (All 5 Metrics):",
+                    "Select Audit Inspection Mode (All Metrics):",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
                         f"2. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
@@ -197,13 +201,11 @@ if export_file and mb51_file:
                     return pd.DataFrame()
 
                 ledger_data = []
-                metric_tag = "General"
 
                 if "2. Strict Exact Match: Official Receipts Filter" in view_mode:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
-                    metric_tag = "Official Receipt"
                     
                     if not matched_receipts.empty:
                         running_tot = 0.0
@@ -232,7 +234,6 @@ if export_file and mb51_file:
                 elif "3. Strict Exact Match: MB51 Raw Receipts Filter" in view_mode:
                     target_mb_rec = mat_summary['MB51 Raw Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
-                    metric_tag = "Raw Receipt"
                     
                     running_tot = 0.0
                     for _, r in pos_rows.iterrows():
@@ -257,7 +258,6 @@ if export_file and mb51_file:
                 elif "4. Strict Exact Match: Official Issues Filter" in view_mode:
                     target_iss = mat_summary['Official Issues (-)']
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0].copy()
-                    metric_tag = "Official Issue"
                     
                     items = []
                     for idx, r in neg_rows.iterrows():
@@ -309,7 +309,6 @@ if export_file and mb51_file:
                 elif "5. Strict Exact Match: MB51 Raw Issues Filter" in view_mode:
                     target_mb_iss = mat_summary['MB51 Raw Issues (-)']
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
-                    metric_tag = "Raw Issue"
                     
                     running_tot = 0.0
                     for _, r in neg_rows.iterrows():
@@ -362,15 +361,14 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Color-Coded Styling Function for Rows
                 def highlight_metric_rows(row):
                     m_type = row.get('Metric_Type', '')
                     if 'Receipt' in m_type:
-                        return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row) # Soft Green for Receipts
+                        return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
                     elif 'Issue' in m_type:
-                        return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row) # Soft Red for Issues
+                        return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
                     else:
-                        return ['background-color: #eef2f7; color: #333333; font-weight: bold;'] * len(row) # Soft Blue/Grey for Opening/Closing
+                        return ['background-color: #eef2f7; color: #333333; font-weight: bold;'] * len(row)
 
                 if not ledger_df.empty and 'Metric_Type' in ledger_df.columns:
                     display_df = ledger_df.drop(columns=['Metric_Type'])
