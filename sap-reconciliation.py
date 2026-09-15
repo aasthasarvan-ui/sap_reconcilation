@@ -100,8 +100,6 @@ if export_file and mb51_file:
       df_export["Material"] = df_export[mat_exp].astype(str).str.strip()
       df_export = df_export[
           ~df_export["Material"].str.lower().str.contains("grand total", na=False]
-      ]
-
       # Feature 2: MB51 Date Range Filtering
       if date_mb51 and date_mb51 in df_mb51.columns:
         df_mb51[date_mb51] = pd.to_datetime(
