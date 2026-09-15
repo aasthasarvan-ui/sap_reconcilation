@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & 7-Metric Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Master Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & 7-Metric Master Auditor")
-st.markdown("Python-powered official reconciliation featuring exact subset-matching and calculations across all 7 audit metrics.")
+st.title("📦 SAP Stock Reconciliation & Master Audit Dashboard")
+st.markdown("Python-powered official reconciliation with strict audit alignment across all 7 metrics.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -79,7 +79,7 @@ if export_file and mb51_file:
                 mb_iss = iss_df[iss_df['Material'] == mat]['MB51_Raw_Issues'].values
                 mb_iss_val = float(mb_iss[0]) if len(mb_iss) > 0 else 0.0
 
-                mb_close = opening + mb_rec_val - mb_iss_val
+                mb_close = opening + off_rec - off_iss  # Using Official Flow for accurate official closing
                 rec_diff = mb_rec_val - off_rec
                 iss_diff = mb_iss_val - off_iss
                 phy_val = phy_map.get(mat, sap_close)
@@ -337,6 +337,10 @@ if export_file and mb51_file:
                 # Mode 6: SAP Official Closing Verification
                 elif "6. SAP Official Closing Verification" in view_mode:
                     target_cls = mat_summary['SAP Official Closing']
+                    off_rec = mat_summary['Official Receipts (+)']
+                    off_iss = mat_summary['Official Issues (-)']
+                    calc_official_closing = mat_opening + off_rec - off_iss
+                    
                     running_tot = mat_opening
                     ledger_data.append({
                         'Material Code': selected_mat,
@@ -348,23 +352,18 @@ if export_file and mb51_file:
                         'Metric_Type': 'Opening/Closing'
                     })
 
-                    for _, r in mat_rows.iterrows():
-                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = float(r['Clean_Qty'])
-
-                        running_tot += q_val
-                        ledger_data.append({
-                            'Material Code': selected_mat,
-                            'Posting Date': str(p_date),
-                            'Movement Type': f"Mov {mov_t}",
-                            'Material Document': str(doc_t),
-                            'Quantity': q_val,
-                            'Running Balance': running_tot,
-                            'Metric_Type': 'Closing'
-                        })
-                    st.success(f"✅ Metric #7 (SAP Official Closing Verification). Final Calculated Closing: **{running_tot}** (Official Closing: {target_cls})")
+                    # Show Official Flow Summary Row
+                    ledger_data.append({
+                        'Material Code': selected_mat,
+                        'Posting Date': 'Official Net Flow (Opening + Off. Rec - Off. Iss)',
+                        'Movement Type': 'SUMMARY',
+                        'Material Document': '-',
+                        'Quantity': off_rec - off_iss,
+                        'Running Balance': calc_official_closing,
+                        'Metric_Type': 'Closing'
+                    })
+                    
+                    st.success(f"✅ Metric #6 (SAP Official Closing Verification). Official Calculated Closing: **{calc_official_closing}** (SAP Official Report Closing: {target_cls})")
                     ledger_df = pd.DataFrame(ledger_data)
 
                 # Mode 7: Physical Stock & Variance Analysis
@@ -373,7 +372,6 @@ if export_file and mb51_file:
                     sap_val = mat_summary['SAP Official Closing']
                     var_val = mat_summary['Variance (Phy vs SAP)']
                     
-                    running_tot = mat_opening
                     ledger_data.append({
                         'Material Code': selected_mat,
                         'Posting Date': 'Physical Stock Audit Summary',
@@ -424,7 +422,7 @@ if export_file and mb51_file:
                         return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
                     elif 'Issue' in m_type:
                         return ['background-color: #f8d7da; color: #721c24; font-weight: bold;'] * len(row)
-                    elif 'Variance' in m_type:
+                    elif 'Variance' in m_type or 'SUMMARY' in str(row.get('Movement Type', '')):
                         return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
                     else:
                         return ['background-color: #eef2f7; color: #333333; font-weight: bold;'] * len(row)
