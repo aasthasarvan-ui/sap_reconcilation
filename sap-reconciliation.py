@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Master Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Gap Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Master Audit Dashboard")
-st.markdown("Python-powered official reconciliation with corrected running balance and clean display formatting.")
+st.title("📦 SAP Stock Reconciliation & Gap Auditor")
+st.markdown("Python-powered official reconciliation with dedicated **Receipts & Issues Difference Gap Row Analysis**.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -135,7 +135,7 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & 9-Metric Inspector")
+            st.subheader("🔍 Single Material Color-Coded Chronological Ledger & Gap Inspector")
             
             material_options = [s['Material Code'] for s in summary_list]
             selected_mat = st.selectbox("Select Material Code for Detailed Audit:", material_options)
@@ -154,15 +154,15 @@ if export_file and mb51_file:
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
                 view_mode = st.radio(
-                    "Select Audit Inspection Mode (All Metrics):",
+                    "Select Audit Inspection Mode (All Metrics & Gap Analysis):",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
                         f"2. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
                         f"3. Complete Log: MB51 Raw Receipts (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
-                        f"4. Receipts Difference Analysis (Gap: {mat_summary['Receipts Diff']})",
+                        f"4. 🔍 Receipts Difference Gap Analysis (Gap: {mat_summary['Receipts Diff']})",
                         f"5. Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})",
                         f"6. Complete Log: MB51 Raw Issues (Target: -{mat_summary['MB51 Raw Issues (-)']})",
-                        f"7. Issues Difference Analysis (Gap: {mat_summary['Issues Diff']})",
+                        f"7. 🔍 Issues Difference Gap Analysis (Gap: {mat_summary['Issues Diff']})",
                         f"8. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})",
                         f"9. Physical Stock & Variance Analysis (Physical Qty: {mat_summary['Physical Stock']}, Variance: {mat_summary['Variance (Phy vs SAP)']})"
                     ]
@@ -207,7 +207,6 @@ if export_file and mb51_file:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
-                    
                     if matched_receipts.empty:
                         matched_receipts = pos_rows
 
@@ -252,8 +251,12 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 4: Receipts Difference Analysis
-                elif "4. Receipts Difference Analysis" in view_mode:
+                # Mode 4: Receipts Difference Gap Analysis
+                elif "4. 🔍 Receipts Difference Gap Analysis" in view_mode:
+                    rec_diff_val = mat_summary['Receipts Diff']
+                    st.warning(f"🔍 Investigating Receipts Gap of **{rec_diff_val}** units (MB51 Raw Receipts minus Official Report Receipts).")
+                    st.markdown("Here are the raw receipt transactions that contribute to this discrepancy:")
+                    
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     running_tot = 0.0
                     for _, r in pos_rows.iterrows():
@@ -307,7 +310,7 @@ if export_file and mb51_file:
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                        q_val = abs(float(r['Clean_Qty'])) # Absolute for positive running total accumulation matching target
+                        q_val = abs(float(r['Clean_Qty']))
 
                         running_tot += q_val
                         ledger_data.append({
@@ -343,8 +346,12 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 7: Issues Difference Analysis
-                elif "7. Issues Difference Analysis" in view_mode:
+                # Mode 7: Issues Difference Gap Analysis
+                elif "7. 🔍 Issues Difference Gap Analysis" in view_mode:
+                    iss_diff_val = mat_summary['Issues Diff']
+                    st.warning(f"🔍 Investigating Issues Gap of **{iss_diff_val}** units (MB51 Raw Issues minus Official Report Issues).")
+                    st.markdown("Here are all raw issue transactions for investigation:")
+                    
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
                     running_tot = 0.0
                     for _, r in neg_rows.iterrows():
@@ -464,7 +471,7 @@ if export_file and mb51_file:
                     st.download_button(
                         label=f"📥 Download Color-Coded Ledger for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_ColorCoded_Ledger.xlsx",
+                        file_name=f"{selected_mat}_Gap_Analysis_Ledger.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
