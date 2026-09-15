@@ -99,7 +99,9 @@ if export_file and mb51_file:
     if mat_exp and op_col and mat_mb51 and qty_mb51:
       df_export["Material"] = df_export[mat_exp].astype(str).str.strip()
       df_export = df_export[
-          ~df_export["Material"].str.lower().str.contains("grand total", na=False]
+          ~df_export["Material"].str.lower().str.contains("grand total", na=False)
+      ]
+
       # Feature 2: MB51 Date Range Filtering
       if date_mb51 and date_mb51 in df_mb51.columns:
         df_mb51[date_mb51] = pd.to_datetime(
@@ -109,8 +111,12 @@ if export_file and mb51_file:
         max_d = df_mb51[date_mb51].max().date()
 
         st.sidebar.subheader("📅 MB51 Transaction Date Filter")
-        start_date = st.sidebar.date_input("Start Date", min_d, min_value=min_d, max_value=max_d)
-        end_date = st.sidebar.date_input("End Date", max_d, min_value=min_d, max_value=max_d)
+        start_date = st.sidebar.date_input(
+            "Start Date", min_d, min_value=min_d, max_value=max_d
+        )
+        end_date = st.sidebar.date_input(
+            "End Date", max_d, min_value=min_d, max_value=max_d
+        )
 
         df_mb51 = df_mb51[
             (df_mb51[date_mb51].dt.date >= start_date)
@@ -176,7 +182,6 @@ if export_file and mb51_file:
           inplace=True,
       )
 
-      # Initialize session state for audit notes if not present
       if "audit_notes" not in st.session_state:
         st.session_state.audit_notes = {}
 
@@ -240,32 +245,23 @@ if export_file and mb51_file:
 
       st.success("Files successfully processed with Python Pandas!")
 
-      # Feature 1: Zero-Stock & Negative Stock Alert Dashboard
-      neg_stock = summary_df[summary_df["Physical Stock"] < 0]
-      sap_neg = summary_df[summary_df["SAP Official Closing"] < 0]
-      if not neg_stock.empty or not sap_neg.empty:
-        st.warning(
-            "⚠️ **Alert:** Negative stock detected in Physical or SAP records!"
-        )
-
-      col_a, col_b, col_c, col_d = st.metric_columns(4) if hasattr(st, "metric_columns") else st.columns(4)
       total_items = len(summary_df)
       matched_items = len(summary_df[summary_df["Variance (Phy vs SAP)"] == 0])
       variance_items = total_items - matched_items
       net_var_sum = summary_df["Variance (Phy vs SAP)"].sum()
 
-      st.metric(label="Total SKUs", value=total_items)
-      st.metric(label="Fully Matched", value=matched_items)
-      st.metric(label="Variance SKUs", value=variance_items)
-      st.metric(label="Net Physical Variance", value=f"{net_var_sum:+,}")
+      m1, m2, m3, m4 = st.columns(4)
+      m1.metric(label="Total SKUs", value=total_items)
+      m2.metric(label="Fully Matched", value=matched_items)
+      m3.metric(label="Variance SKUs", value=variance_items)
+      m4.metric(label="Net Physical Variance", value=f"{net_var_sum:+,}")
 
       st.subheader("📊 Comparative Audit Summary & Notes Tagging")
       st.info(
           "💡 You can directly type notes or root cause reasons inside the"
-          " 'Audit Remarks / Root Cause' table column or expand below!"
+          " 'Audit Remarks / Root Cause' table column below!"
       )
 
-      # Editable Summary Table for Notes Tagging (Feature 3)
       edited_summary_df = st.data_editor(
           summary_df,
           use_container_width=True,
@@ -273,20 +269,17 @@ if export_file and mb51_file:
           key="editable_summary",
       )
 
-      # Update session state with edited notes
       for _, r in edited_summary_df.iterrows():
         st.session_state.audit_notes[r["Material Code"]] = r[
             "Audit Remarks / Root Cause"
         ]
 
-      # Feature 4: Historical Trend / Variance Bar Chart
       st.subheader("📈 Material Variance Distribution Chart")
       chart_data = edited_summary_df.set_index("Material Code")[
           "Variance (Phy vs SAP)"
       ]
       st.bar_chart(chart_data)
 
-      # Feature 5: One-Click Management Summary Copier
       st.subheader("📋 Management Brief Summary")
       summary_text = (
           f"SAP Stock Audit Brief Report:\n- Total SKUs Audited:"
@@ -297,7 +290,6 @@ if export_file and mb51_file:
       )
       st.text_area("Copy summary for WhatsApp / Email:", summary_text, height=100)
 
-      # Export Button for Full Summary with Notes
       output = io.BytesIO()
       with pd.ExcelWriter(output, engine="openpyxl") as writer:
         edited_summary_df.to_excel(
