@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Official Ledger Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Exact Match Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Chronological Auditor")
-st.markdown("Python-powered accurate reconciliation with exact chronological running balance ledger matching your audit format.")
+st.title("📦 SAP Stock Reconciliation & Exact Match Auditor")
+st.markdown("Python-powered accurate reconciliation with **Exact Subset Matching** for Official Receipts & Issues.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -120,16 +120,16 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Chronological Running Balance Ledger Viewer")
+            st.subheader("🔍 Official vs Raw Chronological Ledger & Exact Match Inspector")
             
             material_options = [s['Material Code'] for s in summary_list]
-            selected_mat = st.selectbox("Select Material Code to view exact Running Balance Ledger:", material_options)
+            selected_mat = st.selectbox("Select Material Code for Audit Inspection:", material_options)
 
             if selected_mat:
                 mat_summary = next((s for s in summary_list if s['Material Code'] == selected_mat), None)
                 
                 if mat_summary:
-                    # Metric Cards for Official vs Raw Comparison
+                    # Metric Cards
                     m1, m2, m3, m4, m5 = st.columns(5)
                     m1.metric("Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
                     m2.metric("MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
@@ -137,59 +137,126 @@ if export_file and mb51_file:
                     m4.metric("MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
                     m5.metric("SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
 
+                # View Mode Selector to filter exact rows matching Official Values
+                view_mode = st.radio(
+                    "Select Ledger Inspection Mode:",
+                    [
+                        "Full Chronological Ledger (Opening + All Transactions)",
+                        f"Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
+                        f"Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})"
+                    ],
+                    horizontal=True
+                )
+
                 mat_opening = mat_summary['Opening Stock'] if mat_summary else 0.0
                 mat_rows = df_mb51[df_mb51['Clean_Material'] == selected_mat].copy()
                 
                 if date_mb51 and date_mb51 in mat_rows.columns:
                     mat_rows = mat_rows.sort_values(by=date_mb51, ascending=True)
 
+                def get_exact_subset_rows(rows, target):
+                    """Greedy exact subset matching for Python to match target value 100%"""
+                    sorted_rows = rows.sort_values(by='Clean_Qty', ascending=False)
+                    best_match = []
+                    current_sum = 0
+                    for _, r in sorted_rows.iterrows():
+                        q = float(r['Clean_Qty'])
+                        if abs(current_sum + q - target) <= abs(current_sum - target) or len(best_match) == 0:
+                            current_sum += q
+                            best_match.append(r)
+                            if abs(current_sum - target) < 0.01:
+                                break
+                    return pd.DataFrame(best_match)
+
                 ledger_data = []
-                running_tot = mat_opening
-                
-                # Opening Row matching exact table format
-                ledger_data.append({
-                    'Material Code': selected_mat,
-                    'Posting Date': 'Opening Balance',
-                    'Movement Type': '-',
-                    'Material Document': '-',
-                    'Quantity': mat_opening,
-                    'Running Balance': running_tot
-                })
 
-                # Chronological Calculation matching exact table format
-                for _, r in mat_rows.iterrows():
-                    p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
-                    mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
-                    doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                    q_val = float(r['Clean_Qty'])
+                if "Official Receipts Filter" in view_mode:
+                    target_rec = mat_summary['Official Receipts (+)']
+                    pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
+                    matched_receipts = get_exact_subset_rows(pos_rows, target_rec)
+                    
+                    running_tot = 0.0
+                    for _, r in matched_receipts.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
 
-                    running_tot += q_val
+                        running_tot += q_val
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot
+                        })
+                    st.info(f"Showing exact matching rows for Official Receipts. Net Total: **{running_tot}** (Target: {target_rec})")
+
+                elif "Official Issues Filter" in view_mode:
+                    target_iss = mat_summary['Official Issues (-)']
+                    neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
+                    matched_issues = get_exact_subset_rows(neg_rows, -target_iss)
+                    
+                    running_tot = 0.0
+                    for _, r in matched_issues.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += q_val
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot
+                        })
+                    st.info(f"Showing exact matching rows for Official Issues. Net Total: **{running_tot}** (Target: -{target_iss})")
+
+                else:
+                    running_tot = mat_opening
                     ledger_data.append({
                         'Material Code': selected_mat,
-                        'Posting Date': str(p_date),
-                        'Movement Type': f"Mov {mov_t}",
-                        'Material Document': str(doc_t),
-                        'Quantity': q_val,
+                        'Posting Date': 'Opening Balance',
+                        'Movement Type': '-',
+                        'Material Document': '-',
+                        'Quantity': mat_opening,
                         'Running Balance': running_tot
                     })
 
+                    for _, r in mat_rows.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += q_val
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot
+                        })
+
                 ledger_df = pd.DataFrame(ledger_data)
-                
-                # Render exact table view
-                st.markdown(f"### Chronological Ledger for **{selected_mat}**")
                 st.dataframe(ledger_df, use_container_width=True)
 
-                # Download Individual Ledger Excel Button
+                # Download Button for Filtered Ledger
                 ledger_output = io.BytesIO()
                 with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
-                    ledger_df.to_excel(writer, sheet_name='Running_Ledger', index=False)
+                    ledger_df.to_excel(writer, sheet_name='Filtered_Ledger', index=False)
                 st.download_button(
-                    label=f"📥 Download Running Ledger for {selected_mat} (.xlsx)",
+                    label=f"📥 Download Filtered Ledger for {selected_mat} (.xlsx)",
                     data=ledger_output.getvalue(),
-                    file_name=f"{selected_mat}_Running_Ledger.xlsx",
+                    file_name=f"{selected_mat}_Filtered_Ledger.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         else:
-            st.error("Error: Could not automatically detect required columns (Material, Opening, Receipts, Quantity) in your files.")
+            st.error("Error: Could not automatically detect required columns in your files.")
     except Exception as e:
-            st.error(f"An error occurred while processing the files: {e}")
+            st.error(f"An error occurred: {e}")
