@@ -235,9 +235,8 @@ if export_file and mb51_file:
             "SAP Official Closing": sap_close,
             "Physical Stock": phy_val,
             "Variance (Phy vs SAP)": variance,
-            "Status": (
-                "Gap Found" if (variance != 0 or rec_diff != 0) else "Matched"
-            ),
+            # FIXED: Status now depends strictly on Physical vs SAP Variance
+            "Status": "Matched" if variance == 0 else "Gap Found",
             "Audit Remarks / Root Cause": default_note,
         })
 
