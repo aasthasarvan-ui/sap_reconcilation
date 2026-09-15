@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & 5-Metric Auditor", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Exact Match Auditor")
-st.markdown("Python-powered reconciliation with strict exact subset matching for both Receipts & Issues.")
+st.title("📦 SAP Stock Reconciliation & 5-Metric Exact Match Auditor")
+st.markdown("Python-powered official reconciliation with strict exact subset matching across all 5 audit metrics.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -120,7 +120,7 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Official vs Raw Chronological Ledger & Exact Match Inspector")
+            st.subheader("🔍 Official vs Raw Chronological Ledger & 5-Metric Exact Match Inspector")
             
             material_options = [s['Material Code'] for s in summary_list]
             selected_mat = st.selectbox("Select Material Code for Audit Inspection:", material_options)
@@ -130,20 +130,23 @@ if export_file and mb51_file:
                 
                 if mat_summary:
                     m1, m2, m3, m4, m5 = st.columns(5)
-                    m1.metric("Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
-                    m2.metric("MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
-                    m3.metric("Official Issues", f"-{mat_summary['Official Issues (-)']:,}", delta=f"Diff: {mat_summary['Issues Diff']}", delta_color="inverse")
-                    m4.metric("MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
-                    m5.metric("SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
+                    m1.metric("1. Official Receipts", f"+{mat_summary['Official Receipts (+)']:,}", delta=f"Diff: {mat_summary['Receipts Diff']}")
+                    m2.metric("2. MB51 Raw Receipts", f"+{mat_summary['MB51 Raw Receipts (+)']:,}")
+                    m3.metric("3. Official Issues", f"-{mat_summary['Official Issues (-)']:,}", delta=f"Diff: {mat_summary['Issues Diff']}", delta_color="inverse")
+                    m4.metric("4. MB51 Raw Issues", f"-{mat_summary['MB51 Raw Issues (-)']:,}")
+                    m5.metric("5. SAP Official Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"Phy Var: {mat_summary['Variance (Phy vs SAP)']}")
 
+                # 5-Metric Radio Selection
                 view_mode = st.radio(
-                    "Select Ledger Inspection Mode:",
+                    "Select Audit Inspection Mode (All 5 Metrics):",
                     [
-                        "Full Chronological Ledger (Opening + All Transactions)",
-                        f"Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
-                        f"Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})"
-                    ],
-                    horizontal=True
+                        "1. Full Chronological Ledger (Opening + All Transactions)",
+                        f"2. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
+                        f"3. Strict Exact Match: MB51 Raw Receipts Filter (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
+                        f"4. Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})",
+                        f"5. Strict Exact Match: MB51 Raw Issues Filter (Target: -{mat_summary['MB51 Raw Issues (-)']})",
+                        f"6. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})"
+                    ]
                 )
 
                 mat_opening = mat_summary['Opening Stock'] if mat_summary else 0.0
@@ -156,7 +159,6 @@ if export_file and mb51_file:
                     items = []
                     for idx, r in rows_df.iterrows():
                         items.append((float(r['Clean_Qty']), r))
-                    
                     items.sort(key=lambda x: abs(x[0]), reverse=True)
                     
                     def solve(index, current_sum, current_combination):
@@ -164,17 +166,14 @@ if export_file and mb51_file:
                             return current_combination
                         if index >= len(items) or current_sum > target_val + 1e-5:
                             return None
-                        
                         q, row = items[index]
                         if current_sum + q <= target_val + 1e-5:
                             res = solve(index + 1, current_sum + q, current_combination + [row])
                             if res is not None:
                                 return res
-                        
                         res = solve(index + 1, current_sum, current_combination)
                         if res is not None:
                             return res
-                        
                         return None
 
                     matched = solve(0, 0.0, [])
@@ -184,7 +183,8 @@ if export_file and mb51_file:
 
                 ledger_data = []
 
-                if "Official Receipts Filter" in view_mode:
+                # Mode 2: Official Receipts Filter
+                if "2. Strict Exact Match: Official Receipts Filter" in view_mode:
                     target_rec = mat_summary['Official Receipts (+)']
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
                     matched_receipts = find_exact_subset_sum(pos_rows, target_rec)
@@ -206,24 +206,44 @@ if export_file and mb51_file:
                                 'Quantity': q_val,
                                 'Running Balance': running_tot
                             })
-                        st.success(f"✅ 100% Exact Match Found! Net Total: **{running_tot}** (Target: {target_rec})")
+                        st.success(f"✅ Metric #1 (Official Receipts) Exact Match Found! Net Total: **+{running_tot}** (Target: +{target_rec})")
                         ledger_df = pd.DataFrame(ledger_data)
                     else:
-                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_rec}** ho.")
+                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **+{target_rec}** ho.")
                         ledger_df = pd.DataFrame(columns=['Material Code', 'Posting Date', 'Movement Type', 'Material Document', 'Quantity', 'Running Balance'])
 
-                elif "Official Issues Filter" in view_mode:
+                # Mode 3: MB51 Raw Receipts Filter
+                elif "3. Strict Exact Match: MB51 Raw Receipts Filter" in view_mode:
+                    target_mb_rec = mat_summary['MB51 Raw Receipts (+)']
+                    pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
+                    
+                    running_tot = 0.0
+                    for _, r in pos_rows.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += q_val
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot
+                        })
+                    st.success(f"✅ Metric #2 (MB51 Raw Receipts) Complete Log! Net Total: **+{target_mb_rec}**")
+                    ledger_df = pd.DataFrame(ledger_data)
+
+                # Mode 4: Official Issues Filter
+                elif "4. Strict Exact Match: Official Issues Filter" in view_mode:
                     target_iss = mat_summary['Official Issues (-)']
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0].copy()
                     
-                    # Store original negative rows and pass absolute values for matching
-                    neg_rows['Abs_Qty'] = neg_rows['Clean_Qty'].abs()
-                    
-                    # Create items list directly to avoid series mapping issues
                     items = []
                     for idx, r in neg_rows.iterrows():
-                        items.append((float(r['Abs_Qty']), r))
-                    
+                        items.append((abs(float(r['Clean_Qty'])), r))
                     items.sort(key=lambda x: abs(x[0]), reverse=True)
                     
                     def solve_iss(index, current_sum, current_combination):
@@ -231,17 +251,14 @@ if export_file and mb51_file:
                             return current_combination
                         if index >= len(items) or current_sum > target_iss + 1e-5:
                             return None
-                        
                         q, row = items[index]
                         if current_sum + q <= target_iss + 1e-5:
                             res = solve_iss(index + 1, current_sum + q, current_combination + [row])
                             if res is not None:
                                 return res
-                        
                         res = solve_iss(index + 1, current_sum, current_combination)
                         if res is not None:
                             return res
-                        
                         return None
 
                     matched_iss_list = solve_iss(0, 0.0, [])
@@ -253,7 +270,7 @@ if export_file and mb51_file:
                             p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                             mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                             doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
-                            q_val = float(r['Clean_Qty']) # Keep original negative value
+                            q_val = float(r['Clean_Qty'])
 
                             running_tot += abs(q_val)
                             ledger_data.append({
@@ -262,14 +279,70 @@ if export_file and mb51_file:
                                 'Movement Type': f"Mov {mov_t}",
                                 'Material Document': str(doc_t),
                                 'Quantity': q_val,
-                                'Running Balance': running_tot
+                                'Running Balance': -running_tot
                             })
-                        st.success(f"✅ 100% Exact Match Found! Net Total Issues: **-{running_tot}** (Target: -{target_iss})")
+                        st.success(f"✅ Metric #3 (Official Issues) Exact Match Found! Net Total Issues: **-{running_tot}** (Target: -{target_iss})")
                         ledger_df = pd.DataFrame(ledger_data)
                     else:
-                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **{target_iss}** ho.")
+                        st.error(f"❌ MB51 raw log me aisi koi exact combination nahi milti jiska sum theek **-{target_iss}** ho.")
                         ledger_df = pd.DataFrame(columns=['Material Code', 'Posting Date', 'Movement Type', 'Material Document', 'Quantity', 'Running Balance'])
 
+                # Mode 5: MB51 Raw Issues Filter
+                elif "5. Strict Exact Match: MB51 Raw Issues Filter" in view_mode:
+                    target_mb_iss = mat_summary['MB51 Raw Issues (-)']
+                    neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
+                    
+                    running_tot = 0.0
+                    for _, r in neg_rows.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += abs(q_val)
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': -running_tot
+                        })
+                    st.success(f"✅ Metric #4 (MB51 Raw Issues) Complete Log! Net Total: **-{target_mb_iss}**")
+                    ledger_df = pd.DataFrame(ledger_data)
+
+                # Mode 6: SAP Official Closing Verification
+                elif "6. SAP Official Closing Verification" in view_mode:
+                    target_cls = mat_summary['SAP Official Closing']
+                    running_tot = mat_opening
+                    ledger_data.append({
+                        'Material Code': selected_mat,
+                        'Posting Date': 'Opening Balance',
+                        'Movement Type': '-',
+                        'Material Document': '-',
+                        'Quantity': mat_opening,
+                        'Running Balance': running_tot
+                    })
+
+                    for _, r in mat_rows.iterrows():
+                        p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
+                        mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
+                        doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
+                        q_val = float(r['Clean_Qty'])
+
+                        running_tot += q_val
+                        ledger_data.append({
+                            'Material Code': selected_mat,
+                            'Posting Date': str(p_date),
+                            'Movement Type': f"Mov {mov_t}",
+                            'Material Document': str(doc_t),
+                            'Quantity': q_val,
+                            'Running Balance': running_tot
+                        })
+                    st.success(f"✅ Metric #5 (SAP Official Closing Verification). Final Calculated Closing: **{running_tot}** (Official SAP Closing: {target_cls})")
+                    ledger_df = pd.DataFrame(ledger_data)
+
+                # Default Mode 1: Full Chronological Ledger
                 else:
                     running_tot = mat_opening
                     ledger_data.append({
@@ -305,9 +378,9 @@ if export_file and mb51_file:
                     with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
                         ledger_df.to_excel(writer, sheet_name='Filtered_Ledger', index=False)
                     st.download_button(
-                        label=f"📥 Download Ledger for {selected_mat} (.xlsx)",
+                        label=f"📥 Download Selected Ledger for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_Exact_Match_Ledger.xlsx",
+                        file_name=f"{selected_mat}_Audit_Ledger.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
