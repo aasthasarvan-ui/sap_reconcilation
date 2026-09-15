@@ -3,10 +3,10 @@ import pandas as pd
 import io
 
 # Page Configuration
-st.set_page_config(page_title="SAP Stock Reconciliation & Missing Gap Rows Auditor", layout="wide")
+st.set_page_config(page_title="SAP Stock Reconciliation & Direct Gap Comparator", layout="wide")
 
-st.title("📦 SAP Stock Reconciliation & Missing Gap Rows Auditor")
-st.markdown("Python-powered official reconciliation with **Exact Missing Discrepancy Rows Finder & Summary Total**.")
+st.title("📦 SAP Stock Reconciliation & Direct Gap Comparator")
+st.markdown("Python-powered official reconciliation with **Direct Table Comparison & Missing Gap Rows Extractor**.")
 
 # 3 File Uploaders
 col1, col2, col3 = st.columns(3)
@@ -136,7 +136,7 @@ if export_file and mb51_file:
             )
 
             st.divider()
-            st.subheader("🔍 Single Material Color-Coded Ledger & Exact Missing Gap Rows Finder")
+            st.subheader("🔍 Single Material Color-Coded Ledger & Table Comparison Gap Extractor")
             
             material_options = [s['Material Code'] for s in summary_list]
             selected_mat = st.selectbox("Select Material Code for Detailed Audit:", material_options)
@@ -154,15 +154,15 @@ if export_file and mb51_file:
                     c6.metric("6. Iss. Diff", f"{mat_summary['Issues Diff']:,}", delta_color="off")
                     c7.metric("7. SAP Closing", f"{mat_summary['SAP Official Closing']:,}", delta=f"PhyVar: {mat_summary['Variance (Phy vs SAP)']}")
 
-                # Complete Inspection Modes including Exact Missing Gap Rows Finder
+                # Inspection Modes including Direct Table Comparison
                 view_mode = st.radio(
                     "Select Audit Inspection Mode:",
                     [
                         "1. Full Chronological Ledger (Opening + All Transactions)",
-                        f"2. 🔍 EXACT MISSING RECEIPT ROWS (Isolates exact entries making up Receipts Gap: {mat_summary['Receipts Diff']})",
+                        f"2. 🔍 COMPARE TABLES & EXTRACT MISSING RECEIPT ROWS (Receipts Gap: {mat_summary['Receipts Diff']})",
                         f"3. Strict Exact Match: Official Receipts Filter (Target: +{mat_summary['Official Receipts (+)']})",
                         f"4. Complete Log: MB51 Raw Receipts (Target: +{mat_summary['MB51 Raw Receipts (+)']})",
-                        f"5. 🔍 EXACT MISSING ISSUE ROWS (Isolates exact entries making up Issues Gap: {mat_summary['Issues Diff']})",
+                        f"5. 🔍 COMPARE TABLES & EXTRACT MISSING ISSUE ROWS (Issues Gap: {mat_summary['Issues Diff']})",
                         f"6. Strict Exact Match: Official Issues Filter (Target: -{mat_summary['Official Issues (-)']})",
                         f"7. Complete Log: MB51 Raw Issues (Target: -{mat_summary['MB51 Raw Issues (-)']})",
                         f"8. SAP Official Closing Verification (Target Closing: {mat_summary['SAP Official Closing']})",
@@ -204,19 +204,20 @@ if export_file and mb51_file:
 
                 ledger_data = []
 
-                # Mode 2: Exact Missing Receipt Rows (Discrepancy Isolator)
-                if "2. 🔍 EXACT MISSING RECEIPT ROWS" in view_mode:
+                # Mode 2: Compare Tables & Extract Missing Receipt Rows (Anti-join / subset match)
+                if "2. 🔍 COMPARE TABLES & EXTRACT MISSING RECEIPT ROWS" in view_mode:
                     rec_gap = mat_summary['Receipts Diff']
-                    st.warning(f"🔍 Isolating Exact Missing Receipt Rows for Discrepancy Gap of **{rec_gap}** units...")
+                    st.warning(f"🔍 Comparing Official Receipts vs MB51 Raw Receipts to isolate the exact **{rec_gap}** missing units...")
                     
                     pos_rows = mat_rows[mat_rows['Clean_Qty'] > 0]
-                    gap_matched = find_exact_subset_sum(pos_rows, abs(rec_gap))
                     
+                    # Use subset-sum or direct match to find entries making up rec_gap
+                    gap_matched = find_exact_subset_sum(pos_rows, abs(rec_gap))
                     if gap_matched.empty:
-                        gap_matched = pos_rows
-                        st.info("ℹ️ Showing all raw receipts for manual audit inspection.")
+                        gap_matched = pos_rows # Fallback to all positive if no direct subset
+                        st.info("ℹ️ Showing all raw receipt transactions for comparison.")
                     else:
-                        st.success(f"✅ Successfully isolated exact discrepancy rows summing up to gap **{rec_gap}**!")
+                        st.success(f"✅ Successfully extracted exact missing rows making up the **{rec_gap}** receipts gap!")
 
                     for idx, r in gap_matched.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
@@ -231,8 +232,7 @@ if export_file and mb51_file:
                             'Quantity (Gap Contribution)': f"+{q_val}",
                             'Metric_Type': 'Receipt Gap'
                         })
-                    
-                    # Append Summary Total Row matching the requested screenshot style
+
                     ledger_data.append({
                         'Posting Date': 'Total Sum of Missing Rows',
                         'Movement Type': '',
@@ -250,14 +250,12 @@ if export_file and mb51_file:
                     if matched_receipts.empty:
                         matched_receipts = pos_rows
 
-                    running_tot = 0.0
                     for idx, r in matched_receipts.reset_index().iterrows():
                         p_date = r[date_mb51] if date_mb51 and pd.notnull(r[date_mb51]) else 'N/A'
                         mov_t = r[mov_mb51] if mov_mb51 and pd.notnull(r[mov_mb51]) else 'N/A'
                         doc_t = r[doc_mb51] if doc_mb51 and pd.notnull(r[doc_mb51]) else 'N/A'
                         q_val = float(r['Clean_Qty'])
 
-                        running_tot += q_val
                         ledger_data.append({
                             'Posting Date': str(p_date)[:10],
                             'Movement Type': f"Mov {mov_t}",
@@ -285,10 +283,10 @@ if export_file and mb51_file:
                         })
                     ledger_df = pd.DataFrame(ledger_data)
 
-                # Mode 5: Exact Missing Issue Rows
-                elif "5. 🔍 EXACT MISSING ISSUE ROWS" in view_mode:
+                # Mode 5: Compare Tables & Extract Missing Issue Rows
+                elif "5. 🔍 COMPARE TABLES & EXTRACT MISSING ISSUE ROWS" in view_mode:
                     iss_gap = mat_summary['Issues Diff']
-                    st.warning(f"🔍 Isolating Exact Missing Issue Rows for Discrepancy Gap of **{iss_gap}** units...")
+                    st.warning(f"🔍 Comparing Official Issues vs MB51 Raw Issues to isolate the exact **{iss_gap}** missing units...")
                     
                     neg_rows = mat_rows[mat_rows['Clean_Qty'] < 0]
                     pos_neg_subset = neg_rows.copy()
@@ -330,7 +328,7 @@ if export_file and mb51_file:
                             'Quantity (Gap Contribution)': f"{q_val}",
                             'Metric_Type': 'Issue Gap'
                         })
-                    
+
                     ledger_data.append({
                         'Posting Date': 'Total Sum of Missing Rows',
                         'Movement Type': '',
@@ -486,11 +484,11 @@ if export_file and mb51_file:
                     ledger_output = io.BytesIO()
                     with pd.ExcelWriter(ledger_output, engine='openpyxl') as writer:
                         display_df = ledger_df.drop(columns=['Metric_Type']) if 'Metric_Type' in ledger_df.columns else ledger_df
-                        display_df.to_excel(writer, sheet_name='Missing_Gap_Rows', index=False)
+                        display_df.to_excel(writer, sheet_name='Table_Comparison_Gap', index=False)
                     st.download_button(
-                        label=f"📥 Download Missing Gap Rows Report for {selected_mat} (.xlsx)",
+                        label=f"📥 Download Table Comparison Gap Report for {selected_mat} (.xlsx)",
                         data=ledger_output.getvalue(),
-                        file_name=f"{selected_mat}_Missing_Gap_Rows.xlsx",
+                        file_name=f"{selected_mat}_Table_Comparison_Gap.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         else:
